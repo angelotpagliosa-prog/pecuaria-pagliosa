@@ -166,7 +166,7 @@ function Rebanho({sedes,user}){
   const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Brinco' value={brinco} onChange={setBrinco}/><Inp label='Nome' value={nome} onChange={setNome}/></div>
-    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Raca' value={raca} onChange={setRaca} opts={['Charolês','Caracu','Tabapuã','Nelore','Outro'].map(r=>({v:r,l:r}))}/><Inp label='Sexo' value={sexo} onChange={setSexo} opts={[{v:'M',l:'Macho'},{v:'F',l:'Femea'}]}/></div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Raca' value={raca} onChange={setRaca} opts={['Charolês','Caracu','Tabapuã','Nelore','Braford','Brangus','Angus','Hereford','Simmental','Outro'].map(r=>({v:r,l:r}))}/><Inp label='Sexo' value={sexo} onChange={setSexo} opts={[{v:'M',l:'Macho'},{v:'F',l:'Femea'}]}/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Categoria' value={categoria} onChange={setCategoria} opts={['Terneiro','Sobreano','Matriz','Novilha','Touro','Descarte'].map(c=>({v:c,l:c}))}/><Inp label='Status' value={status} onChange={setStatus} opts={['Ativo','Vendido','Morto'].map(s=>({v:s,l:s}))}/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Nascimento' value={nasc} onChange={setNasc} type='date'/><Inp label='Peso (kg)' value={peso} onChange={setPeso} type='number'/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Pai' value={pai} onChange={setPai}/><Inp label='Mae' value={mae} onChange={setMae}/></div>
