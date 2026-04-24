@@ -110,7 +110,8 @@ function AIPanel({animais,manejos,estoque,reproducao,financeiro}){
 
 // ── DASHBOARD ─────────────────────────────────────────────
 function Dashboard({animais,financeiro,estoque,manejos,agenda,sedes}){
-  const ativos=animais.filter(a=>a.status==='Ativo').length
+  const statusAtivo=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
+  const ativos=animais.filter(a=>statusAtivo.includes(a.status)).length
   const rec=financeiro.filter(f=>f.tipo==='venda').reduce((s,f)=>s+Number(f.valor),0)
   const dep=financeiro.filter(f=>f.tipo==='despesa').reduce((s,f)=>s+Number(f.valor),0)
   const crit=estoque.filter(e=>e.quantidade<=e.minimo).length
@@ -155,11 +156,19 @@ function Rebanho({sedes,user}){
   function loadF(a){setBrinco(a.brinco);setNome(a.nome||'');setRaca(a.raca);setSexo(a.sexo);setNasc(a.nascimento||'');setPeso(String(a.peso||''));setStatus(a.status);setCategoria(a.categoria||'Touro');setSedeId(a.sedeId||'');setPai(a.pai||'');setMae(a.mae||'');}
   function buildObj(){return {brinco,nome,raca,sexo,nascimento:nasc,peso:Number(peso),status,categoria,sedeId,pai,mae};}
 
+  const statusAtivos=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
+  const statusCores={Ativo:G,Prenha:'#34d399','Não Pronta':R,TEF:PU,Inseminada:BL,'Monta Natural':Y,Vendido:'#fb923c',Morto:D2}
   const lista=rows.filter(a=>(filt===''||a.brinco?.includes(filt)||a.nome?.toLowerCase().includes(filt.toLowerCase()))&&(fSede===''||a.sedeId===fSede)&&(fStatus===''||a.status===fStatus))
-  const catColors={Terneiro:BL,Sobreano:'#34d399',Matriz:'#f472b6',Novilha:PU,Touro:Y,Descarte:R}
+  const listaFiltrada=fStatus==='ativo_todos'?rows.filter(a=>statusAtivos.includes(a.status)):lista
   const canEdit=user.perfil!=='funcionario'
 
-  async function salvarNovo(){await add({id:genId(),...buildObj()});setModal(null);}
+  const [modalLimpar,setModalLimpar]=useState(false)
+  const [confirmText,setConfirmText]=useState('')
+  async function limparTodos(){
+    await sb.from('animais').delete().neq('id','__nenhum__')
+    setModalLimpar(false)
+    setConfirmText('')
+  }
   async function salvarEdit(){await update(sel.id,buildObj());setModal(null);}
   async function confirmarDel(){await remove(sel.id);setModal(null);}
 
@@ -167,7 +176,7 @@ function Rebanho({sedes,user}){
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Brinco' value={brinco} onChange={setBrinco}/><Inp label='Nome' value={nome} onChange={setNome}/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Raca' value={raca} onChange={setRaca} opts={['Charolês','Caracu','Tabapuã','Nelore','Braford','Brangus','Angus','Hereford','Simmental','Outro'].map(r=>({v:r,l:r}))}/><Inp label='Sexo' value={sexo} onChange={setSexo} opts={[{v:'M',l:'Macho'},{v:'F',l:'Femea'}]}/></div>
-    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Categoria' value={categoria} onChange={setCategoria} opts={['Terneiro','Sobreano','Matriz','Novilha','Touro','Descarte'].map(c=>({v:c,l:c}))}/><Inp label='Status' value={status} onChange={setStatus} opts={['Ativo','Vendido','Morto'].map(s=>({v:s,l:s}))}/></div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Categoria' value={categoria} onChange={setCategoria} opts={['Terneiro','Sobreano','Matriz','Novilha','Touro','Descarte'].map(c=>({v:c,l:c}))}/><Inp label='Status' value={status} onChange={setStatus} opts={['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural','Vendido','Morto'].map(s=>({v:s,l:s}))}/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Nascimento' value={nasc} onChange={setNasc} type='date'/><Inp label='Peso (kg)' value={peso} onChange={setPeso} type='number'/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Pai' value={pai} onChange={setPai}/><Inp label='Mae' value={mae} onChange={setMae}/></div>
     <Inp label='Sede' value={sedeId} onChange={setSedeId} opts={sedeOpts}/>
@@ -178,14 +187,18 @@ function Rebanho({sedes,user}){
     <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
       <input value={filt} onChange={e=>setFilt(e.target.value)} placeholder='Buscar brinco ou nome...' style={{flex:1,minWidth:160,background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',color:TX,fontSize:13,outline:'none'}}/>
       <select value={fSede} onChange={e=>setFSede(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todas as sedes</option>{sedes.map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}</select>
-      <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todos os status</option><option value='Ativo'>Ativo</option><option value='Vendido'>Vendido</option><option value='Morto'>Morto</option></select>
+      <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}>
+        <option value=''>Todos os status</option>
+        <option value='ativo_todos'>Todos Ativos</option>
+        {['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural','Vendido','Morto'].map(s=><option key={s} value={s}>{s}</option>)}
+      </select>
       <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{lista.length} animais</div>
     </div>
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',minWidth:750}}>
           <thead><tr><Th>Brinco</Th><Th>Nome</Th><Th>Categoria</Th><Th>Raca</Th><Th>Sexo</Th><Th>Nascimento</Th><Th>Peso</Th><Th>Sede</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
-          <tbody>{lista.map(a=>{const sede=sedes.find(s=>s.id===a.sedeId);const sc=a.status==='Ativo'?G:a.status==='Vendido'?Y:R;return <TR key={a.id}><Td s={{fontWeight:800,color:Y}}>{a.brinco}</Td><Td s={{fontWeight:600}}>{a.nome||'-'}</Td><Td><Badge label={a.categoria||'-'} color={catColors[a.categoria]||D1}/></Td><Td>{a.raca}</Td><Td>{a.sexo==='M'?'Macho':'Femea'}</Td><Td s={{color:D1}}>{fmtDate(a.nascimento)}</Td><Td s={{fontWeight:700}}>{a.peso?a.peso+' kg':'-'}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td><Badge label={a.status} color={sc} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(a);loadF(a);setModal('edit');}} onDel={()=>{setSel(a);setModal('delete');}}/></Td>}</TR>})}</tbody>
+          <tbody>{listaFiltrada.map(a=>{const sede=sedes.find(s=>s.id===a.sedeId);const sc=statusCores[a.status]||D1;return <TR key={a.id}><Td s={{fontWeight:800,color:Y}}>{a.brinco}</Td><Td s={{fontWeight:600}}>{a.nome||'-'}</Td><Td><Badge label={a.categoria||'-'} color={catColors[a.categoria]||D1}/></Td><Td>{a.raca}</Td><Td>{a.sexo==='M'?'Macho':'Femea'}</Td><Td s={{color:D1}}>{fmtDate(a.nascimento)}</Td><Td s={{fontWeight:700}}>{a.peso?a.peso+' kg':'-'}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td><Badge label={a.status} color={sc} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(a);loadF(a);setModal('edit');}} onDel={()=>{setSel(a);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {lista.length===0&&<Empty/>}
       </div>}
@@ -438,7 +451,8 @@ function Sedes({user}){
     <SH title='🗺️ Sedes e Localidades' action={user.perfil==='admin'&&tab==='sedes'&&<Btn onClick={()=>setModal('new')}>+ Nova Sede</Btn>}/>
     <div style={{display:'flex',gap:6,marginBottom:20}}>{[['sedes','Sedes'],['movimentacoes','Movimentacoes']].map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'7px 18px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:13,cursor:'pointer'}}>{t[1]}</button>)}</div>
     {tab==='sedes'&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(270px,1fr))',gap:16}}>
-      {sedes.map(s=>{const an=animais.filter(a=>a.sedeId===s.id).length,es=estoque.filter(e=>e.sedeId===s.id).length,ag=agenda.filter(a=>a.sedeId===s.id&&a.status==='pendente').length,ma=manejos.filter(m=>m.sedeId===s.id).length;return <div key={s.id} style={{background:CARD,border:'1px solid '+B,borderRadius:14,padding:22,borderTop:'3px solid '+Y}}>
+      {sedes.map(s=>{  const statusAtivo=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
+  const an=animais.filter(a=>a.sedeId===s.id).length,es=estoque.filter(e=>e.sedeId===s.id).length,ag=agenda.filter(a=>a.sedeId===s.id&&a.status==='pendente').length,ma=manejos.filter(m=>m.sedeId===s.id).length;return <div key={s.id} style={{background:CARD,border:'1px solid '+B,borderRadius:14,padding:22,borderTop:'3px solid '+Y}}>
         <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:14}}>
           <div style={{display:'flex',alignItems:'center',gap:11}}><div style={{width:42,height:42,borderRadius:10,background:Y+'18',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22}}>🏡</div><div><div style={{color:TX,fontWeight:800,fontSize:15}}>{s.nome}</div><div style={{color:D2,fontSize:12,marginTop:2}}>{s.cidade}, {s.estado}</div></div></div>
           {user.perfil==='admin'&&<div style={{display:'flex',gap:6,flexShrink:0}}><button onClick={()=>{setSel(s);setForm({nome:s.nome,cidade:s.cidade,estado:s.estado});setModal('edit');}} style={{background:CARD2,border:'1px solid '+B,borderRadius:7,padding:'5px 10px',cursor:'pointer',color:D1,fontSize:13}}>✏️</button><button onClick={()=>{setSel(s);setModal('delete');}} style={{background:R+'15',border:'1px solid '+R+'30',borderRadius:7,padding:'5px 10px',cursor:'pointer',color:R,fontSize:13}}>🗑️</button></div>}
@@ -508,10 +522,11 @@ function Usuarios({sedes}){
 
 // ── GRAFICOS ──────────────────────────────────────────────
 function Graficos({animais,financeiro,reproducao,manejos,sedes}){
-  const catCount={};animais.filter(a=>a.status==='Ativo').forEach(a=>{const c=a.categoria||'Sem categoria';catCount[c]=(catCount[c]||0)+1;});
+  const statusAtivo=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
+  const catCount={};animais.filter(a=>statusAtivo.includes(a.status)).forEach(a=>{const c=a.categoria||'Sem categoria';catCount[c]=(catCount[c]||0)+1;});
   const catData=Object.keys(catCount).map(k=>({name:k,valor:catCount[k]}));
   const catColors={Terneiro:BL,Sobreano:'#34d399',Matriz:'#f472b6',Novilha:PU,Touro:Y,Descarte:R,'Sem categoria':D1};
-  const racaCount={};animais.filter(a=>a.status==='Ativo').forEach(a=>{racaCount[a.raca]=(racaCount[a.raca]||0)+1;});
+  const racaCount={};animais.filter(a=>statusAtivo.includes(a.status)).forEach(a=>{racaCount[a.raca]=(racaCount[a.raca]||0)+1;});
   const racaData=Object.keys(racaCount).map(k=>({name:k,valor:racaCount[k]}));
   const racaColors=[Y,G,BL,PU,R,'#34d399'];
   const mesMap={};financeiro.forEach(f=>{if(!f.data)return;const mes=f.data.substring(0,7);if(!mesMap[mes])mesMap[mes]={mes,receita:0,despesa:0};if(f.tipo==='venda')mesMap[mes].receita+=Number(f.valor);else mesMap[mes].despesa+=Number(f.valor);});
@@ -519,7 +534,7 @@ function Graficos({animais,financeiro,reproducao,manejos,sedes}){
   const repCount={};reproducao.forEach(r=>{repCount[r.resultado]=(repCount[r.resultado]||0)+1;});
   const repData=Object.keys(repCount).map(k=>({name:k,valor:repCount[k]}));
   const repColors={Prenha:G,Vazia:R,Pendente:Y,Normal:BL};
-  const sedeData=sedes.map(s=>({name:s.nome,animais:animais.filter(a=>a.sedeId===s.id&&a.status==='Ativo').length}));
+  const sedeData=sedes.map(s=>({name:s.nome,animais:animais.filter(a=>a.sedeId===s.id&&statusAtivo.includes(a.status)).length}));
   const tt={contentStyle:{background:CARD2,border:'1px solid '+B,borderRadius:8,color:TX,fontSize:12},labelStyle:{color:D1}};
   const card={background:CARD,border:'1px solid '+B,borderRadius:12,padding:20};
   return <div>
@@ -609,14 +624,234 @@ function ExcelPanel({sedes}){
   </div>
 }
 
-// ── NAV ───────────────────────────────────────────────────
+// ── SEMEN ─────────────────────────────────────────────────
+function Semen({sedes,user}){
+  const {rows:botijoes,loading:loadBot,add:addBot,update:updateBot,remove:removeBot}=useTable('semen_botijoes')
+  const {rows:palhetas,loading:loadPal,add:addPal,update:updatePal,remove:removePal}=useTable('semen_palhetas')
+  const {rows:saidas,loading:loadSai,add:addSai}=useTable('semen_saidas')
+  const [tab,setTab]=useState('botijoes')
+  const [modal,setModal]=useState(null)
+  const [sel,setSel]=useState(null)
+  const [modalSaida,setModalSaida]=useState(null)
+
+  // forms
+  const blankBot={nome:'',sedeId:sedes[0]?.id||'',obs:''}
+  const blankPal={botijoId:'',caneca:'',touro:'',raca:'',dose_total:'',dose_atual:'',obs:''}
+  const blankSaida={palhetaId:'',quantidade:'',destino:'',motivo:'IATF',data:'',obs:''}
+  const [formBot,setFormBot]=useState(blankBot)
+  const [formPal,setFormPal]=useState(blankPal)
+  const [formSaida,setFormSaida]=useState(blankSaida)
+  const fbv=v=>setFormBot(p=>({...p,...v}))
+  const fpv=v=>setFormPal(p=>({...p,...v}))
+  const fsv=v=>setFormSaida(p=>({...p,...v}))
+
+  const canEdit=user.perfil!=='funcionario'
+
+  // totais
+  const totalDoses=palhetas.reduce((s,p)=>s+Number(p.dose_atual||0),0)
+  const totalTouros=[...new Set(palhetas.map(p=>p.touro).filter(Boolean))].length
+
+  async function salvarBot(){
+    if(sel) await updateBot(sel.id,formBot)
+    else await addBot({id:genId(),...formBot})
+    setModal(null);setFormBot(blankBot);setSel(null)
+  }
+  async function excluirBot(){await removeBot(sel.id);setModal(null);setSel(null);}
+
+  async function salvarPal(){
+    if(sel) await updatePal(sel.id,{...formPal,dose_total:Number(formPal.dose_total),dose_atual:Number(formPal.dose_atual)})
+    else await addPal({id:genId(),...formPal,dose_total:Number(formPal.dose_total),dose_atual:Number(formPal.dose_atual)})
+    setModal(null);setFormPal(blankPal);setSel(null)
+  }
+  async function excluirPal(){await removePal(sel.id);setModal(null);setSel(null);}
+
+  async function salvarSaida(){
+    const qtd=Number(formSaida.quantidade)||0
+    const pal=palhetas.find(p=>p.id===formSaida.palhetaId)
+    if(!pal||qtd<=0||qtd>pal.dose_atual) return
+    await addSai({id:genId(),...formSaida,quantidade:qtd,touro:pal.touro,raca:pal.raca,caneca:pal.caneca,botijoId:pal.botijoId})
+    await updatePal(pal.id,{dose_atual:pal.dose_atual-qtd})
+    setModalSaida(null);setFormSaida(blankSaida)
+  }
+
+  const palSel=palhetas.find(p=>p.id===formSaida.palhetaId)
+  const motivoOpts=['IATF','Monta Natural','Doação','Descarte','Outro'].map(m=>({v:m,l:m}))
+  const card={background:CARD,border:'1px solid '+B,borderRadius:12,padding:20}
+  const tabs=[['botijoes','🧊 Botijões'],['palhetas','🧬 Palhetas'],['saidas','📤 Saídas']]
+
+  return <div>
+    <SH title='🧊 Controle de Sêmen' action={canEdit&&<div style={{display:'flex',gap:8}}>
+      {tab==='botijoes'&&<Btn onClick={()=>{setFormBot(blankBot);setSel(null);setModal('bot')}}>+ Novo Botijão</Btn>}
+      {tab==='palhetas'&&<Btn onClick={()=>{setFormPal(blankPal);setSel(null);setModal('pal')}}>+ Nova Palheta</Btn>}
+      {tab==='saidas'&&<Btn onClick={()=>{setFormSaida(blankSaida);setModalSaida(true)}}>+ Registrar Saída</Btn>}
+    </div>}/>
+
+    {/* Cards resumo */}
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:20}}>
+      <StatCard icon='🧊' label='Botijões' value={botijoes.length} color={BL}/>
+      <StatCard icon='🧬' label='Touros' value={totalTouros} color={Y}/>
+      <StatCard icon='💉' label='Doses Disponíveis' value={totalDoses} color={G}/>
+      <StatCard icon='📤' label='Saídas Registradas' value={saidas.length} color={PU}/>
+    </div>
+
+    {/* Tabs */}
+    <div style={{display:'flex',gap:6,marginBottom:18,flexWrap:'wrap'}}>
+      {tabs.map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'7px 18px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:13,cursor:'pointer'}}>{t[1]}</button>)}
+    </div>
+
+    {/* BOTIJÕES */}
+    {tab==='botijoes'&&(loadBot?<Loading/>:
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:16}}>
+        {botijoes.map(b=>{
+          const pals=palhetas.filter(p=>p.botijoId===b.id)
+          const doses=pals.reduce((s,p)=>s+Number(p.dose_atual||0),0)
+          const touros=[...new Set(pals.map(p=>p.touro).filter(Boolean))]
+          const sede=sedes.find(s=>s.id===b.sedeId)
+          return <div key={b.id} style={{background:CARD,border:'1px solid '+B,borderRadius:14,padding:20,borderTop:'3px solid '+BL}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div style={{fontSize:32}}>🧊</div>
+                <div><div style={{color:TX,fontWeight:800,fontSize:16}}>{b.nome}</div><div style={{color:D2,fontSize:12,marginTop:2}}>{sede?.nome||'-'}</div></div>
+              </div>
+              {canEdit&&<ActBtns onEdit={()=>{setSel(b);setFormBot({nome:b.nome,sedeId:b.sedeId,obs:b.obs||''});setModal('bot');}} onDel={()=>{setSel(b);setModal('del_bot');}}/>}
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:9,marginBottom:12}}>
+              <div style={{background:CARD2,borderRadius:8,padding:'10px 12px',border:'1px solid '+B}}><div style={{color:G,fontWeight:800,fontSize:20}}>{doses}</div><div style={{color:D2,fontSize:11,marginTop:2}}>Doses disponíveis</div></div>
+              <div style={{background:CARD2,borderRadius:8,padding:'10px 12px',border:'1px solid '+B}}><div style={{color:Y,fontWeight:800,fontSize:20}}>{pals.length}</div><div style={{color:D2,fontSize:11,marginTop:2}}>Palhetas</div></div>
+            </div>
+            {touros.length>0&&<div style={{marginBottom:8}}><div style={{color:D2,fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:0.5,marginBottom:6}}>Touros</div><div style={{display:'flex',flexWrap:'wrap',gap:5}}>{touros.map(t=><Badge key={t} label={t} color={PU}/>)}</div></div>}
+            {b.obs&&<div style={{color:D2,fontSize:12,marginTop:8}}>Obs: {b.obs}</div>}
+          </div>
+        })}
+        {botijoes.length===0&&<Empty msg='Nenhum botijão cadastrado.'/>}
+      </div>
+    )}
+
+    {/* PALHETAS */}
+    {tab==='palhetas'&&(loadPal?<Loading/>:
+      <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:750}}>
+            <thead><tr><Th>Touro</Th><Th>Raça</Th><Th>Botijão</Th><Th>Caneca</Th><Th>Doses Total</Th><Th>Doses Atual</Th><Th>Situação</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
+            <tbody>{palhetas.map(p=>{
+              const bot=botijoes.find(b=>b.id===p.botijoId)
+              const pct=p.dose_total>0?(p.dose_atual/p.dose_total)*100:0
+              const cor=pct>50?G:pct>20?Y:R
+              return <TR key={p.id}>
+                <Td s={{fontWeight:700,color:TX}}>{p.touro||'-'}</Td>
+                <Td>{p.raca||'-'}</Td>
+                <Td s={{color:BL,fontWeight:600}}>{bot?.nome||'-'}</Td>
+                <Td><Badge label={'Caneca '+p.caneca} color={PU}/></Td>
+                <Td s={{color:D1}}>{p.dose_total}</Td>
+                <Td s={{fontWeight:800,color:cor}}>{p.dose_atual}</Td>
+                <Td>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <div style={{background:B,borderRadius:4,height:6,width:80,flexShrink:0}}>
+                      <div style={{background:cor,width:Math.min(pct,100)+'%',height:'100%',borderRadius:4}}/>
+                    </div>
+                    <span style={{color:cor,fontSize:11,fontWeight:700}}>{Math.round(pct)}%</span>
+                  </div>
+                </Td>
+                {canEdit&&<Td><ActBtns onEdit={()=>{setSel(p);setFormPal({botijoId:p.botijoId,caneca:p.caneca,touro:p.touro||'',raca:p.raca||'',dose_total:String(p.dose_total),dose_atual:String(p.dose_atual),obs:p.obs||''});setModal('pal');}} onDel={()=>{setSel(p);setModal('del_pal');}}/></Td>}
+              </TR>
+            })}</tbody>
+          </table>
+          {palhetas.length===0&&<Empty msg='Nenhuma palheta cadastrada.'/>}
+        </div>
+      </div>
+    )}
+
+    {/* SAÍDAS */}
+    {tab==='saidas'&&(loadSai?<Loading/>:
+      <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:750}}>
+            <thead><tr><Th>Data</Th><Th>Touro</Th><Th>Raça</Th><Th>Botijão</Th><Th>Caneca</Th><Th>Doses</Th><Th>Motivo</Th><Th>Destino</Th><Th>Obs.</Th></tr></thead>
+            <tbody>{[...saidas].reverse().map(s=>{
+              const bot=botijoes.find(b=>b.id===s.botijoId)
+              return <TR key={s.id}>
+                <Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(s.data)}</Td>
+                <Td s={{fontWeight:700,color:Y}}>{s.touro||'-'}</Td>
+                <Td>{s.raca||'-'}</Td>
+                <Td s={{color:BL}}>{bot?.nome||'-'}</Td>
+                <Td><Badge label={'Caneca '+(s.caneca||'-')} color={PU}/></Td>
+                <Td s={{fontWeight:800,color:R}}>{s.quantidade}</Td>
+                <Td><Badge label={s.motivo||'-'} color={G}/></Td>
+                <Td s={{color:D1}}>{s.destino||'-'}</Td>
+                <Td s={{color:D2,fontSize:12}}>{s.obs||'-'}</Td>
+              </TR>
+            })}</tbody>
+          </table>
+          {saidas.length===0&&<Empty msg='Nenhuma saída registrada.'/>}
+        </div>
+      </div>
+    )}
+
+    {/* MODAL BOTIJÃO */}
+    {modal==='bot'&&<Modal title={sel?'Editar Botijão':'Novo Botijão'} onClose={()=>{setModal(null);setSel(null);}}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <Inp label='Nome do Botijão' value={formBot.nome} onChange={v=>fbv({nome:v})} ph='Ex: Botijão 1, Botijão A'/>
+        <Inp label='Sede' value={formBot.sedeId} onChange={v=>fbv({sedeId:v})} opts={sedes.map(s=>({v:s.id,l:s.nome}))}/>
+        <Inp label='Observações' value={formBot.obs} onChange={v=>fbv({obs:v})} ph='Ex: Capacidade 35L'/>
+        <MFooter onCancel={()=>{setModal(null);setSel(null);}} onSave={salvarBot} label={sel?'Salvar Alterações':'Criar Botijão'} disabled={!formBot.nome}/>
+      </div>
+    </Modal>}
+
+    {/* MODAL PALHETA */}
+    {modal==='pal'&&<Modal title={sel?'Editar Palheta':'Nova Palheta'} onClose={()=>{setModal(null);setSel(null);}}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Inp label='Touro' value={formPal.touro} onChange={v=>fpv({touro:v})} ph='Ex: Vagabond'/>
+          <Inp label='Raça' value={formPal.raca} onChange={v=>fpv({raca:v})} opts={['Charolês','Caracu','Tabapuã','Nelore','Braford','Brangus','Angus','Hereford','Simmental','Outro'].map(r=>({v:r,l:r}))}/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Inp label='Botijão' value={formPal.botijoId} onChange={v=>fpv({botijoId:v})} opts={[{v:'',l:'Selecione...'},...botijoes.map(b=>({v:b.id,l:b.nome}))]}/>
+          <Inp label='Nº da Caneca' value={formPal.caneca} onChange={v=>fpv({caneca:v})} ph='Ex: 1, 2, A, B'/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Inp label='Doses Total (entrada)' value={formPal.dose_total} onChange={v=>fpv({dose_total:v})} type='number' ph='Ex: 50'/>
+          <Inp label='Doses Atual (disponível)' value={formPal.dose_atual} onChange={v=>fpv({dose_atual:v})} type='number' ph='Ex: 50'/>
+        </div>
+        <Inp label='Observações' value={formPal.obs} onChange={v=>fpv({obs:v})} ph='Ex: Importado, Partida XYZ'/>
+        <MFooter onCancel={()=>{setModal(null);setSel(null);}} onSave={salvarPal} label={sel?'Salvar Alterações':'Salvar Palheta'} disabled={!formPal.touro||!formPal.botijoId||!formPal.caneca}/>
+      </div>
+    </Modal>}
+
+    {/* MODAL SAÍDA */}
+    {modalSaida&&<Modal title='Registrar Saída de Doses' onClose={()=>setModalSaida(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <Inp label='Palheta (Touro)' value={formSaida.palhetaId} onChange={v=>fsv({palhetaId:v})} opts={[{v:'',l:'Selecione...'},...palhetas.filter(p=>p.dose_atual>0).map(p=>{const bot=botijoes.find(b=>b.id===p.botijoId);return {v:p.id,l:(p.touro||'Sem nome')+' — '+bot?.nome+' / Caneca '+p.caneca+' ('+p.dose_atual+' doses)'}})]}/>
+        {palSel&&<div style={{background:CARD2,border:'1px solid '+B,borderRadius:10,padding:14,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Touro</div><div style={{color:Y,fontWeight:700,fontSize:14,marginTop:3}}>{palSel.touro}</div></div>
+          <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Caneca</div><div style={{color:PU,fontWeight:700,fontSize:14,marginTop:3}}>{palSel.caneca}</div></div>
+          <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Disponível</div><div style={{color:G,fontWeight:700,fontSize:14,marginTop:3}}>{palSel.dose_atual} doses</div></div>
+        </div>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Inp label='Quantidade de Doses' value={formSaida.quantidade} onChange={v=>fsv({quantidade:v})} type='number' ph='Ex: 10'/>
+          <Inp label='Data' value={formSaida.data} onChange={v=>fsv({data:v})} type='date'/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Inp label='Motivo' value={formSaida.motivo} onChange={v=>fsv({motivo:v})} opts={motivoOpts}/>
+          <Inp label='Destino / Lote' value={formSaida.destino} onChange={v=>fsv({destino:v})} ph='Ex: Lote A, Vaca 2526'/>
+        </div>
+        <Inp label='Observações' value={formSaida.obs} onChange={v=>fsv({obs:v})} ph='Ex: Protocolo IATF dia 1'/>
+        {palSel&&Number(formSaida.quantidade)>palSel.dose_atual&&<div style={{background:R+'18',border:'1px solid '+R+'40',borderRadius:8,padding:'10px 14px',color:R,fontSize:13,fontWeight:600}}>⚠️ Quantidade maior que o estoque disponível ({palSel.dose_atual} doses)</div>}
+        <MFooter onCancel={()=>setModalSaida(null)} onSave={salvarSaida} label='Confirmar Saída' disabled={!formSaida.palhetaId||!formSaida.quantidade||!formSaida.data||Number(formSaida.quantidade)>Number(palSel?.dose_atual||0)}/>
+      </div>
+    </Modal>}
+
+    {/* CONFIRMAÇÕES EXCLUSÃO */}
+    {modal==='del_bot'&&sel&&<Modal title='Excluir Botijão' onClose={()=>{setModal(null);setSel(null);}}><DelConfirm msg={'Excluir o botijão "'+sel.nome+'"? Todas as palhetas vinculadas serão afetadas.'} onCancel={()=>{setModal(null);setSel(null);}} onConfirm={excluirBot}/></Modal>}
+    {modal==='del_pal'&&sel&&<Modal title='Excluir Palheta' onClose={()=>{setModal(null);setSel(null);}}><DelConfirm msg={'Excluir palheta do touro "'+sel.touro+'"?'} onCancel={()=>{setModal(null);setSel(null);}} onConfirm={excluirPal}/></Modal>}
+  </div>
+}
 const NAV=[
   {id:'dashboard',icon:'📊',label:'Dashboard',g:'Principal'},
   {id:'graficos',icon:'📈',label:'Graficos',g:'Principal'},
   {id:'rebanho',icon:'🐂',label:'Rebanho',g:'Zootecnia'},
   {id:'reproducao',icon:'🔬',label:'Reproducao',g:'Zootecnia'},
   {id:'manejos',icon:'🩺',label:'Manejos',g:'Zootecnia'},
-  {id:'financeiro',icon:'💰',label:'Financeiro',g:'Gestao'},
+  {id:'semen',icon:'🧊',label:'Controle de Sêmen',g:'Zootecnia'},
   {id:'estoque',icon:'📦',label:'Estoque',g:'Gestao'},
   {id:'agenda',icon:'📅',label:'Agenda',g:'Gestao'},
   {id:'sedes',icon:'🗺️',label:'Sedes',g:'Config'},
@@ -696,7 +931,7 @@ export default function App(){
         {mod==='rebanho'&&<Rebanho sedes={sedes} user={user}/>}
         {mod==='reproducao'&&<Reproducao animais={animais} sedes={sedes} user={user}/>}
         {mod==='manejos'&&<Manejos sedes={sedes} user={user}/>}
-        {mod==='financeiro'&&<Financeiro clientes={clientes} user={user}/>}
+        {mod==='semen'&&<Semen sedes={sedes} user={user}/>}
         {mod==='estoque'&&<Estoque sedes={sedes} user={user}/>}
         {mod==='agenda'&&<Agenda sedes={sedes}/>}
         {mod==='sedes'&&<Sedes user={user}/>}
