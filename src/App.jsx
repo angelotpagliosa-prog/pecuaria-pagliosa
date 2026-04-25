@@ -158,6 +158,7 @@ function Rebanho({sedes,user}){
 
   const statusAtivos=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
   const statusCores={Ativo:G,Prenha:'#34d399','Não Pronta':R,TEF:PU,Inseminada:BL,'Monta Natural':Y,Vendido:'#fb923c',Morto:D2}
+  const catColors={Terneiro:BL,Sobreano:'#34d399',Matriz:'#f472b6',Novilha:PU,Touro:Y,Descarte:R}
   const lista=rows.filter(a=>(filt===''||a.brinco?.includes(filt)||a.nome?.toLowerCase().includes(filt.toLowerCase()))&&(fSede===''||a.sedeId===fSede)&&(fStatus===''||a.status===fStatus))
   const listaFiltrada=fStatus==='ativo_todos'?rows.filter(a=>statusAtivos.includes(a.status)):lista
   const canEdit=user.perfil!=='funcionario'
@@ -169,6 +170,7 @@ function Rebanho({sedes,user}){
     setModalLimpar(false)
     setConfirmText('')
   }
+  async function salvarNovo(){await add({id:genId(),...buildObj()});setModal(null);reset();}
   async function salvarEdit(){await update(sel.id,buildObj());setModal(null);}
   async function confirmarDel(){await remove(sel.id);setModal(null);}
 
