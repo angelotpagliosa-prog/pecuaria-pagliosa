@@ -247,42 +247,62 @@ function Estoque({sedes,user}){
 }
 
 // ── FINANCEIRO ────────────────────────────────────────────
+const CAT_DESP=['Sanidade','Alimentação/Ração','Mão de Obra','Combustível','Manutenção','Reprodução','Impostos/Taxas','Transporte','Energia Elétrica','Outros']
+const CAT_REC=['Venda de Animais','Arrendamento','Serviços','Outros']
+const catCorFin={Sanidade:PU,'Alimentação/Ração':'#34d399','Mão de Obra':BL,Combustível:'#fb923c',Manutenção:Y,Reprodução:'#f472b6','Impostos/Taxas':R,Transporte:'#a3e635','Energia Elétrica':'#facc15','Venda de Animais':G,Arrendamento:G,Serviços:G,Outros:D1}
 function Financeiro({clientes,user}){
   const {rows,loading,add,update,remove}=useTable('financeiro')
-  const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos')
-  const blank={tipo:'venda',descricao:'',valor:'',data:'',clienteId:''}
+  const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos'),[fCat,setFCat]=useState('')
+  const blank={tipo:'despesa',categoria:'Outros',descricao:'',valor:'',data:'',clienteId:''}
   const [form,setForm]=useState(blank)
   const fv=v=>setForm(p=>({...p,...v}))
   const rec=rows.filter(x=>x.tipo==='venda').reduce((s,x)=>s+Number(x.valor),0)
   const dep=rows.filter(x=>x.tipo==='despesa').reduce((s,x)=>s+Number(x.valor),0)
-  const lista=tab==='todos'?rows:rows.filter(x=>x.tipo===tab)
+  const lista=(tab==='todos'?rows:rows.filter(x=>x.tipo===tab)).filter(x=>fCat===''||x.categoria===fCat)
   const canEdit=user.perfil!=='funcionario'
+  const catOpts=form.tipo==='venda'?CAT_REC.map(c=>({v:c,l:c})):CAT_DESP.map(c=>({v:c,l:c}))
   async function salvarNovo(){await add({id:genId(),...form,valor:Number(form.valor)});setModal(null);setForm(blank);}
   async function salvarEdit(){await update(sel.id,{...form,valor:Number(form.valor)});setModal(null);}
   async function confirmarDel(){await remove(sel.id);setModal(null);}
   const cliOpts=[{v:'',l:'Nenhum'},...clientes.map(c=>({v:c.id,l:c.nome}))]
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
-    <Inp label='Tipo' value={form.tipo} onChange={v=>fv({tipo:v})} opts={[{v:'venda',l:'Venda'},{v:'despesa',l:'Despesa'}]}/>
-    <Inp label='Descricao' value={form.descricao} onChange={v=>fv({descricao:v})}/>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <Inp label='Tipo' value={form.tipo} onChange={v=>fv({tipo:v,categoria:v==='venda'?'Venda de Animais':'Outros'})} opts={[{v:'despesa',l:'Despesa'},{v:'venda',l:'Receita'}]}/>
+      <Inp label='Categoria' value={form.categoria} onChange={v=>fv({categoria:v})} opts={catOpts}/>
+    </div>
+    <Inp label='Descrição' value={form.descricao} onChange={v=>fv({descricao:v})} ph='Ex: Ivermectina lote A, Venda Touro 2526...'/>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Valor (R$)' value={form.valor} onChange={v=>fv({valor:v})} type='number'/><Inp label='Data' value={form.data} onChange={v=>fv({data:v})} type='date'/></div>
-    <Inp label='Cliente' value={form.clienteId} onChange={v=>fv({clienteId:v})} opts={cliOpts}/>
+    <Inp label='Cliente / Fornecedor' value={form.clienteId} onChange={v=>fv({clienteId:v})} opts={cliOpts}/>
   </div>
+  const depPorCat=CAT_DESP.map(c=>({cat:c,total:rows.filter(x=>x.tipo==='despesa'&&x.categoria===c).reduce((s,x)=>s+Number(x.valor),0)})).filter(x=>x.total>0)
   return <div>
-    <SH title='💰 Financeiro' action={canEdit&&<Btn onClick={()=>{setForm(blank);setModal('new')}}>+ Novo Lancamento</Btn>}/>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:18}}><StatCard icon='📈' label='Receita Total' value={fmtR(rec)} color={G}/><StatCard icon='📉' label='Despesas' value={fmtR(dep)} color={R}/><StatCard icon='💵' label='Saldo' value={fmtR(rec-dep)} color={rec-dep>=0?Y:R}/></div>
-    <div style={{display:'flex',gap:6,marginBottom:14}}>{[['todos','Todos'],['venda','Vendas'],['despesa','Despesas']].map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:12,cursor:'pointer'}}>{t[1]}</button>)}</div>
+    <SH title='💰 Financeiro' action={canEdit&&<Btn onClick={()=>{setForm(blank);setModal('new')}}>+ Novo Lançamento</Btn>}/>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(155px,1fr))',gap:12,marginBottom:18}}>
+      <StatCard icon='📈' label='Receitas' value={fmtR(rec)} color={G}/>
+      <StatCard icon='📉' label='Despesas' value={fmtR(dep)} color={R}/>
+      <StatCard icon='💵' label='Saldo' value={fmtR(rec-dep)} color={rec-dep>=0?Y:R}/>
+      <StatCard icon='📋' label='Lançamentos' value={rows.length} color={BL}/>
+    </div>
+    {depPorCat.length>0&&<div style={{background:CARD,border:'1px solid '+B,borderRadius:12,padding:16,marginBottom:18}}>
+      <div style={{color:D1,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6,marginBottom:12}}>Despesas por Categoria</div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8}}>{depPorCat.sort((a,b)=>b.total-a.total).map(x=><div key={x.cat} style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'8px 14px',cursor:'pointer',borderLeft:'3px solid '+(catCorFin[x.cat]||D1)}} onClick={()=>setFCat(fCat===x.cat?'':x.cat)}><div style={{color:catCorFin[x.cat]||D1,fontWeight:700,fontSize:13}}>{fmtR(x.total)}</div><div style={{color:D2,fontSize:10,marginTop:2}}>{x.cat}</div></div>)}</div>
+    </div>}
+    <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
+      {[['todos','Todos'],['despesa','Despesas'],['venda','Receitas']].map(t=><button key={t[0]} onClick={()=>{setTab(t[0]);setFCat('');}} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:12,cursor:'pointer'}}>{t[1]}</button>)}
+      {fCat&&<button onClick={()=>setFCat('')} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+R+'40',background:R+'15',color:R,fontWeight:700,fontSize:11,cursor:'pointer'}}>✕ {fCat}</button>}
+    </div>
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:600}}>
-          <thead><tr><Th>Tipo</Th><Th>Descricao</Th><Th>Valor</Th><Th>Data</Th><Th>Cliente</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
-          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);return <TR key={x.id}><Td><Badge label={x.tipo==='venda'?'Venda':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1}}>{fmtDate(x.data)}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setForm({tipo:x.tipo,descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:700}}>
+          <thead><tr><Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Cliente/Fornecedor</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
+          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;return <TR key={x.id}><Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {lista.length===0&&<Empty/>}
       </div>}
     </div>
-    {modal==='new'&&<Modal title='Novo Lancamento' onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} disabled={!form.descricao||!form.valor}/></Modal>}
+    {modal==='new'&&<Modal title='Novo Lançamento' onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} disabled={!form.descricao||!form.valor}/></Modal>}
     {modal==='edit'&&sel&&<Modal title={'Editar: '+sel.descricao} onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.descricao||!form.valor}/></Modal>}
-    {modal==='delete'&&sel&&<Modal title='Excluir Lancamento' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+sel.descricao+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
+    {modal==='delete'&&sel&&<Modal title='Excluir Lançamento' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+sel.descricao+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
   </div>
 }
 
@@ -555,71 +575,102 @@ function Graficos({animais,financeiro,reproducao,manejos,sedes}){
 // ── EXCEL ─────────────────────────────────────────────────
 function ExcelPanel({sedes}){
   const {rows:animais}=useTable('animais')
-  const {rows:financeiro,setRows:setFin}=useTable('financeiro')
-  const {rows:estoque,setRows:setEst}=useTable('estoque')
+  const {rows:financeiro}=useTable('financeiro')
+  const {rows:estoque}=useTable('estoque')
   const {rows:clientes}=useTable('clientes')
   const fileRef=useRef(null)
   const [importTab,setImportTab]=useState('animais'),[importMsg,setImportMsg]=useState(null),[preview,setPreview]=useState(null)
-  function exportSheet(name,rows,file){const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,name);XLSX.writeFile(wb,file+'.xlsx');}
-  function exportAnimais(){exportSheet('Rebanho',animais.map(a=>{const s=sedes.find(x=>x.id===a.sedeId)||{nome:''};return {Brinco:a.brinco,Nome:a.nome||'',Categoria:a.categoria||'',Raca:a.raca,Sexo:a.sexo,Nascimento:a.nascimento||'',Peso:a.peso||'',Status:a.status,Sede:s.nome};}), 'PecuarIA_Rebanho');}
-  function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Cliente:c.nome||''};}), 'PecuarIA_Financeiro');}
-  function exportEst(){exportSheet('Estoque',estoque.map(e=>{const s=sedes.find(x=>x.id===e.sedeId)||{nome:''};return {Nome:e.nome,Categoria:e.categoria,Quantidade:e.quantidade,Unidade:e.unidade,Minimo:e.minimo,Sede:s.nome};}), 'PecuarIA_Estoque');}
+  function exportSheet(name,data,file){const ws=XLSX.utils.json_to_sheet(data);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,name);XLSX.writeFile(wb,file+'.xlsx');}
+  function exportAnimais(){exportSheet('Rebanho',animais.map(a=>{const s=sedes.find(x=>x.id===a.sedeId)||{nome:''};return {Brinco:a.brinco,Nome:a.nome||'',Categoria:a.categoria||'',Raca:a.raca,Sexo:a.sexo,Nascimento:a.nascimento||'',Peso:a.peso||'',Status:a.status,Sede:s.nome};}),'PecuarIA_Rebanho');}
+  function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Categoria:f.categoria||'',Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Cliente:c.nome||''};}),'PecuarIA_Financeiro');}
+  function exportEst(){exportSheet('Estoque',estoque.map(e=>{const s=sedes.find(x=>x.id===e.sedeId)||{nome:''};return {Nome:e.nome,Categoria:e.categoria,Quantidade:e.quantidade,Unidade:e.unidade,Minimo:e.minimo,Sede:s.nome};}),'PecuarIA_Estoque');}
   function downloadTemplate(tipo){
-    const tpls={animais:[{Brinco:'2526',Nome:'Touro 2526',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal'}],financeiro:[{Tipo:'venda',Descricao:'Venda Touro',Valor:15000,Data:'2026-04-10',Cliente:'Jair Krause'}],estoque:[{Nome:'Ivermectina 1%',Categoria:'Antiparasitário',Quantidade:50,Unidade:'mL',Minimo:10,Sede:'Sede Principal'}]};
-    exportSheet(tipo,tpls[tipo],'Template_'+tipo);
+    const tpls={
+      animais:[{Brinco:'2526',Nome:'Touro 2526',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal'}],
+      financeiro:[{Tipo:'despesa',Categoria:'Sanidade',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Cliente:''}],
+      estoque:[{Nome:'Ivermectina 1%',Categoria:'Antiparasitário',Quantidade:50,Unidade:'mL',Minimo:10,Sede:'Sede Principal'}],
+      manejos:[{Nome_Manejo:'Vermifugação Maio',Data:'2026-05-10',Sede:'Sede Principal',Num_Cabecas:120,Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85},{Nome_Manejo:'Vermifugação Maio',Data:'2026-05-10',Sede:'Sede Principal',Num_Cabecas:120,Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20}],
+      vendas:[{Brinco:'2526',Data:'2026-05-10',Valor:18000,Peso:650,Comprador:'João da Silva',CPF:'000.000.000-00',Telefone:'(46) 99999-9999',Cidade:'Palmas',Estado:'PR',Obs:'GTA 1234'}]
+    }
+    exportSheet(tipo,tpls[tipo],'Template_'+tipo)
   }
   function handleFile(e){const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const wb=XLSX.read(ev.target.result,{type:'binary'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{defval:''});setPreview({rows,file:file.name});setImportMsg(null);}catch{setImportMsg({type:'error',text:'Erro ao ler o arquivo.'});}};reader.readAsBinaryString(file);e.target.value='';}
   async function confirmarImport(){
-    if(!preview)return;
-    const rows=preview.rows;
+    if(!preview)return
+    const rows=preview.rows
     try{
       if(importTab==='animais'){
-        const novos=rows.map((r,i)=>{const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0];return {id:genId(),brinco:String(r.Brinco||''),nome:r.Nome||'',categoria:r.Categoria||'',raca:r.Raca||'Charolês',sexo:r.Sexo==='F'?'F':'M',nascimento:r.Nascimento||'',peso:Number(r.Peso)||0,status:r.Status||'Ativo',sedeId:sede?.id||'',pai:r.Pai||'',mae:r.Mae||''};}).filter(a=>a.brinco);
-        await sb.from('animais').insert(novos);
-        setImportMsg({type:'ok',text:novos.length+' animal(is) importado(s) com sucesso!'});
+        const novos=rows.map(r=>{const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0];return {id:genId(),brinco:String(r.Brinco||''),nome:r.Nome||'',categoria:r.Categoria||'',raca:r.Raca||'Charolês',sexo:r.Sexo==='F'?'F':'M',nascimento:r.Nascimento||'',peso:Number(r.Peso)||0,status:r.Status||'Ativo',sedeId:sede?.id||'',pai:r.Pai||'',mae:r.Mae||''};}).filter(a=>a.brinco)
+        await sb.from('animais').insert(novos)
+        setImportMsg({type:'ok',text:novos.length+' animal(is) importado(s)!'})
       } else if(importTab==='financeiro'){
-        const novos=rows.map((r,i)=>{const cli=clientes.find(c=>c.nome===r.Cliente);return {id:genId(),tipo:r.Tipo==='venda'||r.Tipo==='Venda'?'venda':'despesa',descricao:r.Descricao||'',valor:Number(r.Valor)||0,data:r.Data||'',clienteId:cli?.id||''};}).filter(f=>f.descricao);
-        await sb.from('financeiro').insert(novos);
-        setImportMsg({type:'ok',text:novos.length+' lancamento(s) importado(s) com sucesso!'});
+        const novos=rows.map(r=>{const cli=clientes.find(c=>c.nome===r.Cliente);return {id:genId(),tipo:['venda','Venda','receita','Receita'].includes(r.Tipo)?'venda':'despesa',categoria:r.Categoria||'Outros',descricao:r.Descricao||'',valor:Number(r.Valor)||0,data:r.Data||'',clienteId:cli?.id||''};}).filter(f=>f.descricao)
+        await sb.from('financeiro').insert(novos)
+        setImportMsg({type:'ok',text:novos.length+' lançamento(s) importado(s)!'})
       } else if(importTab==='estoque'){
-        const novos=rows.map((r,i)=>{const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0];return {id:genId(),nome:r.Nome||'',categoria:r.Categoria||'Outro',quantidade:Number(r.Quantidade)||0,unidade:r.Unidade||'unid',minimo:Number(r.Minimo)||0,sedeId:sede?.id||''};}).filter(e=>e.nome);
-        await sb.from('estoque').insert(novos);
-        setImportMsg({type:'ok',text:novos.length+' item(s) importado(s) com sucesso!'});
+        const novos=rows.map(r=>{const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0];return {id:genId(),nome:r.Nome||'',categoria:r.Categoria||'Outro',quantidade:Number(r.Quantidade)||0,unidade:r.Unidade||'unid',minimo:Number(r.Minimo)||0,sedeId:sede?.id||''};}).filter(e=>e.nome)
+        await sb.from('estoque').insert(novos)
+        setImportMsg({type:'ok',text:novos.length+' item(s) importado(s)!'})
+      } else if(importTab==='manejos'){
+        // Agrupar linhas por Nome_Manejo+Data+Sede → um manejo por grupo
+        const grupos={}
+        rows.forEach(r=>{
+          const chave=(r.Nome_Manejo||'')+'||'+(r.Data||'')+'||'+(r.Sede||'')
+          if(!grupos[chave])grupos[chave]={nome:r.Nome_Manejo||'Manejo',data:r.Data||'',sede:r.Sede||'',cabecas:Number(r.Num_Cabecas)||0,meds:[]}
+          if(r.Medicamento)grupos[chave].meds.push({id:genId(),nome:String(r.Medicamento),qtd:Number(r.Quantidade)||0,unidade:r.Unidade||'mL',valor:Number(r.Valor_Unit)||0})
+        })
+        const novos=Object.values(grupos).map(g=>{const sede=sedes.find(s=>s.nome===g.sede)||sedes[0];return {id:genId(),nome:g.nome,data:g.data,sedeId:sede?.id||'',cabecas:g.cabecas,medicamentos:g.meds,obs:'Importado via Excel',status:'concluido'};})
+        await sb.from('manejos').insert(novos)
+        setImportMsg({type:'ok',text:novos.length+' manejo(s) criado(s) com '+rows.length+' linha(s)!'})
+      } else if(importTab==='vendas'){
+        const novos=rows.filter(r=>r.Brinco).map(r=>{const animal=animais.find(a=>String(a.brinco)===String(r.Brinco));return {id:genId(),animalId:animal?.id||'',data:r.Data||'',valor:Number(r.Valor)||0,peso:Number(r.Peso)||0,compradorNome:r.Comprador||'',compradorCpf:r.CPF||'',compradorTelefone:r.Telefone||'',compradorCidade:r.Cidade||'',compradorEstado:r.Estado||'PR',obs:r.Obs||''};})
+        await sb.from('vendas').insert(novos)
+        // Atualizar status dos animais para Vendido
+        const ids=novos.map(v=>v.animalId).filter(Boolean)
+        if(ids.length)await sb.from('animais').update({status:'Vendido'}).in('id',ids)
+        // Lançar receitas no financeiro
+        const fins=novos.filter(v=>v.animalId).map(v=>{const a=animais.find(x=>x.id===v.animalId);return {id:genId(),tipo:'venda',categoria:'Venda de Animais',descricao:'Venda: '+(a?.brinco||'')+' para '+v.compradorNome,valor:v.valor,data:v.data,clienteId:''};})
+        if(fins.length)await sb.from('financeiro').insert(fins)
+        setImportMsg({type:'ok',text:novos.length+' venda(s) importada(s)! Animais marcados como Vendido.'})
       }
-      setPreview(null);
-    }catch(err){setImportMsg({type:'error',text:'Erro ao importar: '+err.message});}
+      setPreview(null)
+    }catch(err){setImportMsg({type:'error',text:'Erro: '+err.message})}
   }
-  const exportBtns=[{label:'🐂 Rebanho',fn:exportAnimais,color:Y},{label:'💰 Financeiro',fn:exportFin,color:G},{label:'📦 Estoque',fn:exportEst,color:PU}];
-  const card={background:CARD,border:'1px solid '+B,borderRadius:12,padding:22};
+  const exportBtns=[{label:'🐂 Rebanho',fn:exportAnimais,color:Y},{label:'💰 Financeiro',fn:exportFin,color:G},{label:'📦 Estoque',fn:exportEst,color:PU}]
+  const importTabs=[['animais','🐂 Rebanho'],['manejos','🩺 Manejos (Lida)'],['vendas','💲 Vendas'],['financeiro','💰 Financeiro'],['estoque','📦 Estoque']]
+  const descTab={animais:'Importe animais em massa. Baixe o template, preencha e envie.',manejos:'Importe lidas e manejos sanitários em lote. Uma linha por medicamento. O sistema agrupa automaticamente por manejo.',vendas:'Importe vendas de animais. O status do animal vira "Vendido" e a receita é lançada no financeiro automaticamente.',financeiro:'Importe lançamentos financeiros (despesas e receitas) em lote.',estoque:'Importe itens de estoque em massa.'}
+  const card={background:CARD,border:'1px solid '+B,borderRadius:12,padding:22}
   return <div>
-    <div style={{color:TX,fontWeight:800,fontSize:22,marginBottom:6}}>📂 Importar / Exportar</div>
-    <div style={{color:D2,fontSize:13,marginBottom:22}}>Exporte dados para Excel ou importe uma planilha</div>
+    <div style={{color:TX,fontWeight:800,fontSize:22,marginBottom:6}}>📂 Importar / Exportar Excel</div>
+    <div style={{color:D2,fontSize:13,marginBottom:22}}>Exporte dados ou importe planilhas para alimentar o sistema automaticamente</div>
     <div style={{...card,marginBottom:18}}>
       <div style={{color:TX,fontWeight:700,fontSize:15,marginBottom:6}}>⬇️ Exportar para Excel</div>
-      <div style={{color:D2,fontSize:13,marginBottom:16}}>Baixe os dados em formato .xlsx.</div>
+      <div style={{color:D2,fontSize:13,marginBottom:16}}>Baixe os dados em formato .xlsx para editar ou arquivar.</div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10}}>{exportBtns.map(b=><button key={b.label} onClick={b.fn} style={{background:b.color+'18',border:'1px solid '+b.color+'40',borderRadius:10,padding:'12px 16px',cursor:'pointer',color:b.color,fontWeight:700,fontSize:13,textAlign:'left'}}>{b.label}</button>)}</div>
     </div>
     <div style={card}>
       <div style={{color:TX,fontWeight:700,fontSize:15,marginBottom:6}}>⬆️ Importar do Excel</div>
-      <div style={{color:D2,fontSize:13,marginBottom:16}}>Use o template para garantir o formato correto.</div>
-      <div style={{display:'flex',gap:8,marginBottom:18,flexWrap:'wrap'}}>{[['animais','🐂 Rebanho'],['financeiro','💰 Financeiro'],['estoque','📦 Estoque']].map(t=><button key={t[0]} onClick={()=>{setImportTab(t[0]);setPreview(null);setImportMsg(null);}} style={{padding:'7px 16px',borderRadius:8,border:'1px solid '+(importTab===t[0]?Y:B),background:importTab===t[0]?Y+'18':'transparent',color:importTab===t[0]?Y:D1,fontWeight:700,fontSize:13,cursor:'pointer'}}>{t[1]}</button>)}</div>
-      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:10,padding:14,marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}><div><div style={{color:TX,fontWeight:600,fontSize:13}}>📄 Template de importacao</div><div style={{color:D2,fontSize:12,marginTop:2}}>Baixe o modelo, preencha e envie de volta.</div></div><button onClick={()=>downloadTemplate(importTab)} style={{background:BL+'20',border:'1px solid '+BL+'40',borderRadius:8,padding:'8px 16px',cursor:'pointer',color:BL,fontWeight:700,fontSize:13}}>Baixar Template</button></div>
+      <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>{importTabs.map(t=><button key={t[0]} onClick={()=>{setImportTab(t[0]);setPreview(null);setImportMsg(null);}} style={{padding:'7px 16px',borderRadius:8,border:'1px solid '+(importTab===t[0]?Y:B),background:importTab===t[0]?Y+'18':'transparent',color:importTab===t[0]?Y:D1,fontWeight:700,fontSize:13,cursor:'pointer'}}>{t[1]}</button>)}</div>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:10,padding:14,marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
+        <div><div style={{color:TX,fontWeight:600,fontSize:13}}>📄 {importTabs.find(t=>t[0]===importTab)?.[1]} — Template</div><div style={{color:D2,fontSize:12,marginTop:2}}>{descTab[importTab]}</div></div>
+        <button onClick={()=>downloadTemplate(importTab)} style={{background:BL+'20',border:'1px solid '+BL+'40',borderRadius:8,padding:'8px 16px',cursor:'pointer',color:BL,fontWeight:700,fontSize:13,whiteSpace:'nowrap'}}>⬇️ Baixar Template</button>
+      </div>
       <div onClick={()=>fileRef.current?.click()} style={{border:'2px dashed '+B,borderRadius:10,padding:'28px 20px',textAlign:'center',cursor:'pointer',marginBottom:14}} onMouseEnter={e=>e.currentTarget.style.borderColor=Y} onMouseLeave={e=>e.currentTarget.style.borderColor=B}>
         <div style={{fontSize:36,marginBottom:8}}>📤</div>
-        <div style={{color:TX,fontWeight:600,fontSize:14}}>Clique para selecionar o arquivo</div>
-        <div style={{color:D2,fontSize:12,marginTop:4}}>Aceita arquivos .xlsx e .xls</div>
+        <div style={{color:TX,fontWeight:600,fontSize:14}}>Clique para selecionar o arquivo .xlsx</div>
+        <div style={{color:D2,fontSize:12,marginTop:4}}>Aceita .xlsx e .xls</div>
         <input ref={fileRef} type='file' accept='.xlsx,.xls' onChange={handleFile} style={{display:'none'}}/>
       </div>
       {preview&&<div style={{marginBottom:14}}>
         <div style={{background:Y+'18',border:'1px solid '+Y+'40',borderRadius:10,padding:14,marginBottom:12}}><div style={{color:Y,fontWeight:700,fontSize:13}}>📋 Preview: {preview.file}</div><div style={{color:D1,fontSize:12,marginTop:3}}>{preview.rows.length} linha(s) encontrada(s).</div></div>
-        <div style={{background:CARD2,border:'1px solid '+B,borderRadius:10,overflow:'auto',maxHeight:200}}>
+        <div style={{background:CARD2,border:'1px solid '+B,borderRadius:10,overflow:'auto',maxHeight:220}}>
           <table style={{width:'100%',borderCollapse:'collapse',minWidth:400}}>
             <thead><tr>{preview.rows.length>0&&Object.keys(preview.rows[0]).map(k=><th key={k} style={{padding:'8px 12px',textAlign:'left',color:D2,fontSize:11,fontWeight:700,textTransform:'uppercase',background:CARD,whiteSpace:'nowrap'}}>{k}</th>)}</tr></thead>
             <tbody>{preview.rows.slice(0,8).map((row,i)=><tr key={i} style={{borderTop:'1px solid '+B+'30'}}>{Object.values(row).map((v,j)=><td key={j} style={{padding:'8px 12px',color:TX,fontSize:12,whiteSpace:'nowrap'}}>{String(v)}</td>)}</tr>)}</tbody>
           </table>
           {preview.rows.length>8&&<div style={{padding:'8px 12px',color:D2,fontSize:12}}>...e mais {preview.rows.length-8} linha(s)</div>}
         </div>
-        <div style={{display:'flex',gap:10,marginTop:12,justifyContent:'flex-end'}}><button onClick={()=>setPreview(null)} style={{background:'transparent',border:'1px solid '+B,borderRadius:8,padding:'8px 18px',cursor:'pointer',color:D1,fontWeight:700,fontSize:13}}>Cancelar</button><button onClick={confirmarImport} style={{background:G,border:'none',borderRadius:8,padding:'8px 18px',cursor:'pointer',color:'#000',fontWeight:700,fontSize:13}}>Confirmar Importacao</button></div>
+        <div style={{display:'flex',gap:10,marginTop:12,justifyContent:'flex-end'}}><button onClick={()=>setPreview(null)} style={{background:'transparent',border:'1px solid '+B,borderRadius:8,padding:'8px 18px',cursor:'pointer',color:D1,fontWeight:700,fontSize:13}}>Cancelar</button><button onClick={confirmarImport} style={{background:G,border:'none',borderRadius:8,padding:'8px 18px',cursor:'pointer',color:'#000',fontWeight:700,fontSize:13}}>✅ Confirmar Importação</button></div>
       </div>}
       {importMsg&&<div style={{background:importMsg.type==='ok'?G+'18':R+'18',border:'1px solid '+(importMsg.type==='ok'?G:R)+'40',borderRadius:10,padding:14}}><div style={{color:importMsg.type==='ok'?G:R,fontWeight:700,fontSize:13}}>{importMsg.type==='ok'?'✅':'❌'} {importMsg.text}</div></div>}
     </div>
@@ -847,6 +898,74 @@ function Semen({sedes,user}){
     {modal==='del_pal'&&sel&&<Modal title='Excluir Palheta' onClose={()=>{setModal(null);setSel(null);}}><DelConfirm msg={'Excluir palheta do touro "'+sel.touro+'"?'} onCancel={()=>{setModal(null);setSel(null);}} onConfirm={excluirPal}/></Modal>}
   </div>
 }
+// ── VENDAS ────────────────────────────────────────────────
+function Vendas({animais,sedes,user}){
+  const {rows,loading,add,update,remove}=useTable('vendas')
+  const [modal,setModal]=useState(null),[sel,setSel]=useState(null)
+  const blank={animalId:'',data:'',valor:'',peso:'',compradorNome:'',compradorCpf:'',compradorTelefone:'',compradorCidade:'',compradorEstado:'PR',obs:''}
+  const [form,setForm]=useState(blank)
+  const fv=v=>setForm(p=>({...p,...v}))
+  const canEdit=user.perfil!=='funcionario'
+  const ativosStatus=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
+  const animaisAtivos=animais.filter(a=>ativosStatus.includes(a.status))
+  const totalRec=rows.reduce((s,v)=>s+Number(v.valor||0),0)
+  async function salvarNovo(){
+    const obj={id:genId(),...form,valor:Number(form.valor),peso:Number(form.peso)}
+    await add(obj)
+    if(form.animalId)await sb.from('animais').update({status:'Vendido'}).eq('id',form.animalId)
+    const animal=animais.find(a=>a.id===form.animalId)
+    await sb.from('financeiro').insert([{id:genId(),tipo:'venda',categoria:'Venda de Animais',descricao:'Venda: '+(animal?.brinco||'')+(animal?.nome?' — '+animal.nome:''),valor:Number(form.valor),data:form.data,clienteId:''}])
+    setModal(null);setForm(blank)
+  }
+  async function salvarEdit(){await update(sel.id,{...form,valor:Number(form.valor),peso:Number(form.peso)});setModal(null);}
+  async function confirmarDel(){await remove(sel.id);setModal(null);}
+  const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
+    <div style={{background:BL+'15',border:'1px solid '+BL+'30',borderRadius:9,padding:'8px 13px',color:BL,fontSize:12,fontWeight:700}}>🐂 ANIMAL</div>
+    <Inp label='Animal' value={form.animalId} onChange={v=>fv({animalId:v})} opts={[{v:'',l:'Selecione o animal...'},...animaisAtivos.map(a=>({v:a.id,l:a.brinco+(a.nome?' — '+a.nome:'')+' ('+a.categoria+', '+a.raca+')'}))]}/>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+      <Inp label='Data da Venda' value={form.data} onChange={v=>fv({data:v})} type='date'/>
+      <Inp label='Valor (R$)' value={form.valor} onChange={v=>fv({valor:v})} type='number' ph='0,00'/>
+      <Inp label='Peso na Venda (kg)' value={form.peso} onChange={v=>fv({peso:v})} type='number' ph='0'/>
+    </div>
+    <div style={{background:Y+'15',border:'1px solid '+Y+'30',borderRadius:9,padding:'8px 13px',color:Y,fontSize:12,fontWeight:700,marginTop:4}}>👤 DADOS DO COMPRADOR</div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <Inp label='Nome do Comprador' value={form.compradorNome} onChange={v=>fv({compradorNome:v})} ph='Nome completo'/>
+      <Inp label='CPF / CNPJ' value={form.compradorCpf} onChange={v=>fv({compradorCpf:v})} ph='000.000.000-00'/>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+      <Inp label='Telefone / WhatsApp' value={form.compradorTelefone} onChange={v=>fv({compradorTelefone:v})} ph='(46) 99999-9999'/>
+      <Inp label='Cidade' value={form.compradorCidade} onChange={v=>fv({compradorCidade:v})} ph='Palmas'/>
+      <Inp label='Estado' value={form.compradorEstado} onChange={v=>fv({compradorEstado:v})} ph='PR'/>
+    </div>
+    <Inp label='Observações (NF, GTA, etc.)' value={form.obs} onChange={v=>fv({obs:v})} ph='Ex: NF 1234, GTA nº 5678'/>
+  </div>
+  return <div>
+    <SH title='💲 Vendas de Animais' action={canEdit&&<Btn onClick={()=>{setForm(blank);setModal('new')}}>+ Registrar Venda</Btn>}/>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:20}}>
+      <StatCard icon='💲' label='Total de Vendas' value={rows.length} color={G}/>
+      <StatCard icon='💰' label='Receita Total' value={fmtR(totalRec)} color={Y}/>
+      <StatCard icon='🐂' label='Animais Vendidos' value={[...new Set(rows.map(v=>v.animalId).filter(Boolean))].length} color={BL}/>
+      <StatCard icon='⚖️' label='Média por Animal' value={rows.length?fmtR(totalRec/rows.length):fmtR(0)} color={PU}/>
+    </div>
+    <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
+      {loading?<Loading/>:<div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
+          <thead><tr><Th>Animal</Th><Th>Data</Th><Th>Valor</Th><Th>Peso</Th><Th>Comprador</Th><Th>CPF/CNPJ</Th><Th>Telefone</Th><Th>Cidade/UF</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
+          <tbody>{rows.map(v=>{const animal=animais.find(a=>a.id===v.animalId);return <TR key={v.id}><Td s={{fontWeight:700,color:Y}}>{animal?animal.brinco+(animal.nome?' — '+animal.nome:''):'(removido)'}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(v.data)}</Td><Td s={{fontWeight:800,color:G}}>{fmtR(v.valor)}</Td><Td s={{color:D1}}>{v.peso?v.peso+' kg':'-'}</Td><Td s={{fontWeight:600}}>{v.compradorNome||'-'}</Td><Td s={{color:D1,fontSize:12}}>{v.compradorCpf||'-'}</Td><Td s={{color:D1,fontSize:12}}>{v.compradorTelefone||'-'}</Td><Td s={{color:D1,fontSize:12}}>{v.compradorCidade?v.compradorCidade+'/'+v.compradorEstado:'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(v);setForm({animalId:v.animalId||'',data:v.data||'',valor:String(v.valor||''),peso:String(v.peso||''),compradorNome:v.compradorNome||'',compradorCpf:v.compradorCpf||'',compradorTelefone:v.compradorTelefone||'',compradorCidade:v.compradorCidade||'',compradorEstado:v.compradorEstado||'PR',obs:v.obs||''});setModal('edit');}} onDel={()=>{setSel(v);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        </table>
+        {rows.length===0&&<Empty msg='Nenhuma venda registrada.'/>}
+      </div>}
+    </div>
+    {modal==='new'&&<Modal title='Registrar Venda de Animal' onClose={()=>setModal(null)} wide>
+      {formBody}
+      <div style={{background:G+'10',border:'1px solid '+G+'30',borderRadius:8,padding:'10px 14px',margin:'10px 0',fontSize:12,color:G,fontWeight:600}}>✅ Ao confirmar: status do animal vira "Vendido" e a receita é lançada no Financeiro automaticamente.</div>
+      <MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} label='Confirmar Venda' disabled={!form.animalId||!form.valor||!form.data||!form.compradorNome}/>
+    </Modal>}
+    {modal==='edit'&&sel&&<Modal title='Editar Venda' onClose={()=>setModal(null)} wide>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.animalId||!form.valor||!form.data||!form.compradorNome}/></Modal>}
+    {modal==='delete'&&sel&&<Modal title='Excluir Venda' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir venda de '+fmtR(sel.valor)+' para '+sel.compradorNome+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
+  </div>
+}
+
 const NAV=[
   {id:'dashboard',icon:'📊',label:'Dashboard',g:'Principal'},
   {id:'graficos',icon:'📈',label:'Graficos',g:'Principal'},
@@ -854,6 +973,7 @@ const NAV=[
   {id:'reproducao',icon:'🔬',label:'Reproducao',g:'Zootecnia'},
   {id:'manejos',icon:'🩺',label:'Manejos',g:'Zootecnia'},
   {id:'semen',icon:'🧊',label:'Controle de Sêmen',g:'Zootecnia'},
+  {id:'vendas',icon:'💲',label:'Vendas',g:'Gestao'},
   {id:'estoque',icon:'📦',label:'Estoque',g:'Gestao'},
   {id:'agenda',icon:'📅',label:'Agenda',g:'Gestao'},
   {id:'sedes',icon:'🗺️',label:'Sedes',g:'Config'},
@@ -934,6 +1054,7 @@ export default function App(){
         {mod==='reproducao'&&<Reproducao animais={animais} sedes={sedes} user={user}/>}
         {mod==='manejos'&&<Manejos sedes={sedes} user={user}/>}
         {mod==='semen'&&<Semen sedes={sedes} user={user}/>}
+        {mod==='vendas'&&<Vendas animais={animais} sedes={sedes} user={user}/>}
         {mod==='estoque'&&<Estoque sedes={sedes} user={user}/>}
         {mod==='agenda'&&<Agenda sedes={sedes}/>}
         {mod==='sedes'&&<Sedes user={user}/>}
