@@ -73,9 +73,9 @@ function useTable(table){
   useEffect(()=>{
     sb.from(table).select('*').then(({data})=>{setRows(data||[]);setLoading(false);})
   },[table])
-  async function add(obj){const {data}=await sb.from(table).insert([obj]).select();if(data)setRows(p=>[...p,data[0]]);}
-  async function update(id,obj){const {data}=await sb.from(table).update(obj).eq('id',id).select();if(data)setRows(p=>p.map(r=>r.id===id?data[0]:r));}
-  async function remove(id){await sb.from(table).delete().eq('id',id);setRows(p=>p.filter(r=>r.id!==id));}
+  async function add(obj){const {data,error}=await sb.from(table).insert([obj]).select();if(error)throw error;if(data)setRows(p=>[...p,data[0]]);}
+  async function update(id,obj){const {data,error}=await sb.from(table).update(obj).eq('id',id).select();if(error)throw error;if(data)setRows(p=>p.map(r=>r.id===id?data[0]:r));}
+  async function remove(id){const {error}=await sb.from(table).delete().eq('id',id);if(error)throw error;setRows(p=>p.filter(r=>r.id!==id));}
   return {rows,loading,add,update,remove,setRows}
 }
 
@@ -247,6 +247,61 @@ function Estoque({sedes,user}){
   </div>
 }
 
+// ── CLIENTES E FORNECEDORES ──────────────────────────────
+function ClientesFornecedores({user}){
+  const {rows,loading,add,update,remove}=useTable('clientes')
+  const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos')
+  const blank={nome:'',tipo:'cliente',documento:'',telefone:'',email:'',cidade:'',estado:'PR',obs:''}
+  const [form,setForm]=useState(blank)
+  const fv=v=>setForm(p=>({...p,...v}))
+  const canEdit=user.perfil!=='funcionario'
+  const lista=(tab==='todos'?rows:rows.filter(c=>(c.tipo||'cliente')===tab))
+  const tipoColor={cliente:G,fornecedor:Y,ambos:BL}
+  async function salvarNovo(){try{await add({id:genId(),...form});setModal(null);setForm(blank)}catch(e){alert('Erro ao salvar: '+e.message)}}
+  async function salvarEdit(){try{await update(sel.id,form);setModal(null)}catch(e){alert('Erro ao salvar: '+e.message)}}
+  async function confirmarDel(){try{await remove(sel.id);setModal(null)}catch(e){alert('Erro ao excluir: '+e.message)}}
+  const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
+    <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
+      <Inp label='Nome / Razao Social' value={form.nome} onChange={v=>fv({nome:v})}/>
+      <Inp label='Tipo' value={form.tipo} onChange={v=>fv({tipo:v})} opts={[{v:'cliente',l:'Cliente'},{v:'fornecedor',l:'Fornecedor'},{v:'ambos',l:'Cliente e Fornecedor'}]}/>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <Inp label='CPF / CNPJ' value={form.documento} onChange={v=>fv({documento:v})}/>
+      <Inp label='Telefone / WhatsApp' value={form.telefone} onChange={v=>fv({telefone:v})}/>
+    </div>
+    <Inp label='E-mail' value={form.email} onChange={v=>fv({email:v})} type='email'/>
+    <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
+      <Inp label='Cidade' value={form.cidade} onChange={v=>fv({cidade:v})}/>
+      <Inp label='Estado' value={form.estado} onChange={v=>fv({estado:v})}/>
+    </div>
+    <Inp label='Observacoes' value={form.obs} onChange={v=>fv({obs:v})}/>
+  </div>
+  return <div>
+    <SH title='👥 Clientes e Fornecedores' action={canEdit&&<Btn onClick={()=>{setForm(blank);setSel(null);setModal('new')}}>+ Novo Cadastro</Btn>}/>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:18}}>
+      <StatCard icon='👤' label='Clientes' value={rows.filter(c=>(c.tipo||'cliente')==='cliente').length} color={G}/>
+      <StatCard icon='🏪' label='Fornecedores' value={rows.filter(c=>c.tipo==='fornecedor').length} color={Y}/>
+      <StatCard icon='🔁' label='Ambos' value={rows.filter(c=>c.tipo==='ambos').length} color={BL}/>
+      <StatCard icon='📋' label='Total' value={rows.length} color={PU}/>
+    </div>
+    <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
+      {[['todos','Todos'],['cliente','Clientes'],['fornecedor','Fornecedores'],['ambos','Ambos']].map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:12,cursor:'pointer'}}>{t[1]}</button>)}
+    </div>
+    <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
+      {loading?<Loading/>:<div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+          <thead><tr><Th>Nome</Th><Th>Tipo</Th><Th>CPF/CNPJ</Th><Th>Telefone</Th><Th>E-mail</Th><Th>Cidade/UF</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
+          <tbody>{lista.map(c=>{const tc=tipoColor[c.tipo||'cliente']||D1;return <TR key={c.id}><Td s={{fontWeight:700}}>{c.nome}</Td><Td><Badge label={c.tipo||'cliente'} color={tc}/></Td><Td s={{color:D1,fontSize:12}}>{c.documento||'-'}</Td><Td s={{color:D1,fontSize:12}}>{c.telefone||'-'}</Td><Td s={{color:D1,fontSize:12}}>{c.email||'-'}</Td><Td s={{color:D1,fontSize:12}}>{c.cidade?c.cidade+'/'+(c.estado||''):'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(c);setForm({nome:c.nome||'',tipo:c.tipo||'cliente',documento:c.documento||'',telefone:c.telefone||'',email:c.email||'',cidade:c.cidade||'',estado:c.estado||'PR',obs:c.obs||''});setModal('edit');}} onDel={()=>{setSel(c);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        </table>
+        {lista.length===0&&<Empty msg='Nenhum cliente ou fornecedor cadastrado.'/>}
+      </div>}
+    </div>
+    {modal==='new'&&<Modal title='Novo Cliente / Fornecedor' onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} disabled={!form.nome}/></Modal>}
+    {modal==='edit'&&sel&&<Modal title={'Editar: '+sel.nome} onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.nome}/></Modal>}
+    {modal==='delete'&&sel&&<Modal title='Excluir Cadastro' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+sel.nome+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
+  </div>
+}
+
 // ── FINANCEIRO ────────────────────────────────────────────
 const CAT_DESP=['Sanidade','Alimentação/Ração','Mão de Obra','Combustível','Manutenção','Reprodução','Impostos/Taxas','Transporte','Energia Elétrica','Outros']
 const CAT_REC=['Venda de Animais','Arrendamento','Serviços','Outros']
@@ -254,17 +309,37 @@ const catCorFin={Sanidade:PU,'Alimentação/Ração':'#34d399','Mão de Obra':BL
 function Financeiro({clientes,user}){
   const {rows,loading,add,update,remove}=useTable('financeiro')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos'),[fCat,setFCat]=useState('')
-  const blank={tipo:'despesa',categoria:'Outros',descricao:'',valor:'',data:'',clienteId:''}
+  const blank={tipo:'despesa',categoria:'Outros',descricao:'',valor:'',data:'',clienteId:'',notaNumero:'',notaSerie:'',notaChave:'',notaEmissao:'',notaUrl:'',notaObs:''}
   const [form,setForm]=useState(blank)
+  const [notaFile,setNotaFile]=useState(null)
+  const [uploading,setUploading]=useState(false)
   const fv=v=>setForm(p=>({...p,...v}))
   const rec=rows.filter(x=>x.tipo==='venda').reduce((s,x)=>s+Number(x.valor),0)
   const dep=rows.filter(x=>x.tipo==='despesa').reduce((s,x)=>s+Number(x.valor),0)
   const lista=(tab==='todos'?rows:rows.filter(x=>x.tipo===tab)).filter(x=>fCat===''||x.categoria===fCat)
   const canEdit=user.perfil!=='funcionario'
   const catOpts=form.tipo==='venda'?CAT_REC.map(c=>({v:c,l:c})):CAT_DESP.map(c=>({v:c,l:c}))
-  async function salvarNovo(){await add({id:genId(),...form,valor:Number(form.valor)});setModal(null);setForm(blank);}
-  async function salvarEdit(){await update(sel.id,{...form,valor:Number(form.valor)});setModal(null);}
-  async function confirmarDel(){await remove(sel.id);setModal(null);}
+  async function uploadNota(id){
+    if(!notaFile)return form.notaUrl||''
+    const safe=notaFile.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9._-]/g,'-')
+    const path=id+'/'+Date.now()+'-'+safe
+    const {error}=await sb.storage.from('notas-fiscais').upload(path,notaFile,{upsert:true})
+    if(error)throw error
+    const {data}=sb.storage.from('notas-fiscais').getPublicUrl(path)
+    return data?.publicUrl||''
+  }
+  async function salvarNovo(){
+    const id=genId()
+    try{setUploading(true);const notaUrl=await uploadNota(id);await add({id,...form,notaUrl,valor:Number(form.valor)});setModal(null);setForm(blank);setNotaFile(null)}
+    catch(e){alert('Erro ao salvar: '+e.message)}
+    finally{setUploading(false)}
+  }
+  async function salvarEdit(){
+    try{setUploading(true);const notaUrl=await uploadNota(sel.id);await update(sel.id,{...form,notaUrl,valor:Number(form.valor)});setModal(null);setNotaFile(null)}
+    catch(e){alert('Erro ao salvar: '+e.message)}
+    finally{setUploading(false)}
+  }
+  async function confirmarDel(){try{await remove(sel.id);setModal(null)}catch(e){alert('Erro ao excluir: '+e.message)}}
   const cliOpts=[{v:'',l:'Nenhum'},...clientes.map(c=>({v:c.id,l:c.nome}))]
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
@@ -274,10 +349,26 @@ function Financeiro({clientes,user}){
     <Inp label='Descrição' value={form.descricao} onChange={v=>fv({descricao:v})} ph='Ex: Ivermectina lote A, Venda Touro 2526...'/>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Valor (R$)' value={form.valor} onChange={v=>fv({valor:v})} type='number'/><Inp label='Data' value={form.data} onChange={v=>fv({data:v})} type='date'/></div>
     <Inp label='Cliente / Fornecedor' value={form.clienteId} onChange={v=>fv({clienteId:v})} opts={cliOpts}/>
+    <div style={{background:Y+'15',border:'1px solid '+Y+'30',borderRadius:9,padding:'8px 13px',color:Y,fontSize:12,fontWeight:700,marginTop:4}}>📄 Nota Fiscal</div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <Inp label='Numero da Nota' value={form.notaNumero} onChange={v=>fv({notaNumero:v})}/>
+      <Inp label='Serie' value={form.notaSerie} onChange={v=>fv({notaSerie:v})}/>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
+      <Inp label='Chave de Acesso' value={form.notaChave} onChange={v=>fv({notaChave:v})}/>
+      <Inp label='Emissao' value={form.notaEmissao} onChange={v=>fv({notaEmissao:v})} type='date'/>
+    </div>
+    <Inp label='Link da Nota / Foto' value={form.notaUrl} onChange={v=>fv({notaUrl:v})} ph='Cole a URL ou envie um arquivo abaixo'/>
+    <div style={{display:'flex',flexDirection:'column',gap:5}}>
+      <label style={{color:D1,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6}}>Foto ou PDF da Nota</label>
+      <input type='file' accept='image/*,.pdf' onChange={e=>setNotaFile(e.target.files?.[0]||null)} style={{background:CARD2,border:'1px solid '+B,borderRadius:8,padding:'9px 12px',color:D1,fontSize:13,width:'100%'}}/>
+      <div style={{color:D2,fontSize:11}}>Usa o bucket Supabase Storage chamado notas-fiscais.</div>
+    </div>
+    <Inp label='Observacoes da Nota' value={form.notaObs} onChange={v=>fv({notaObs:v})}/>
   </div>
   const depPorCat=CAT_DESP.map(c=>({cat:c,total:rows.filter(x=>x.tipo==='despesa'&&x.categoria===c).reduce((s,x)=>s+Number(x.valor),0)})).filter(x=>x.total>0)
   return <div>
-    <SH title='💰 Financeiro' action={canEdit&&<Btn onClick={()=>{setForm(blank);setModal('new')}}>+ Novo Lançamento</Btn>}/>
+    <SH title='💰 Financeiro' action={canEdit&&<Btn onClick={()=>{setForm(blank);setNotaFile(null);setModal('new')}}>+ Novo Lançamento</Btn>}/>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(155px,1fr))',gap:12,marginBottom:18}}>
       <StatCard icon='📈' label='Receitas' value={fmtR(rec)} color={G}/>
       <StatCard icon='📉' label='Despesas' value={fmtR(dep)} color={R}/>
@@ -294,15 +385,15 @@ function Financeiro({clientes,user}){
     </div>
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:700}}>
-          <thead><tr><Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Cliente/Fornecedor</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
-          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;return <TR key={x.id}><Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+          <thead><tr><Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Cliente/Fornecedor</Th><Th>Nota</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
+          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;const temNota=x.notaNumero||x.notaUrl||x.notaChave;return <TR key={x.id}><Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td><Td>{temNota?(x.notaUrl?<a href={x.notaUrl} target='_blank' rel='noreferrer' style={{color:Y,textDecoration:'none',fontWeight:700}}>NF {x.notaNumero||'anexo'}</a>:<Badge label={'NF '+(x.notaNumero||'informada')} color={Y}/>):<span style={{color:D2}}>-</span>}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setNotaFile(null);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||'',notaNumero:x.notaNumero||'',notaSerie:x.notaSerie||'',notaChave:x.notaChave||'',notaEmissao:x.notaEmissao||'',notaUrl:x.notaUrl||'',notaObs:x.notaObs||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {lista.length===0&&<Empty/>}
       </div>}
     </div>
-    {modal==='new'&&<Modal title='Novo Lançamento' onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} disabled={!form.descricao||!form.valor}/></Modal>}
-    {modal==='edit'&&sel&&<Modal title={'Editar: '+sel.descricao} onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.descricao||!form.valor}/></Modal>}
+    {modal==='new'&&<Modal title='Novo Lançamento' onClose={()=>setModal(null)} wide>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} disabled={!form.descricao||!form.valor||uploading} label={uploading?'Enviando...':'Salvar'}/></Modal>}
+    {modal==='edit'&&sel&&<Modal title={'Editar: '+sel.descricao} onClose={()=>setModal(null)} wide>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.descricao||!form.valor||uploading} label={uploading?'Enviando...':'Salvar'}/></Modal>}
     {modal==='delete'&&sel&&<Modal title='Excluir Lançamento' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+sel.descricao+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
   </div>
 }
@@ -975,6 +1066,7 @@ const NAV=[
   {id:'manejos',icon:'🩺',label:'Manejos',g:'Zootecnia'},
   {id:'semen',icon:'🧊',label:'Controle de Sêmen',g:'Zootecnia'},
   {id:'financeiro',icon:'💰',label:'Financeiro',g:'Gestao'},
+  {id:'clientes',icon:'👥',label:'Clientes/Fornecedores',g:'Gestao'},
   {id:'vendas',icon:'💲',label:'Vendas',g:'Gestao'},
   {id:'estoque',icon:'📦',label:'Estoque',g:'Gestao'},
   {id:'agenda',icon:'📅',label:'Agenda',g:'Gestao'},
@@ -1057,6 +1149,7 @@ export default function App(){
         {mod==='manejos'&&<Manejos sedes={sedes} user={user}/>}
         {mod==='semen'&&<Semen sedes={sedes} user={user}/>}
         {mod==='financeiro'&&<Financeiro clientes={clientes} user={user}/>}
+        {mod==='clientes'&&<ClientesFornecedores user={user}/>}
         {mod==='vendas'&&<Vendas animais={animais} sedes={sedes} user={user}/>}
         {mod==='estoque'&&<Estoque sedes={sedes} user={user}/>}
         {mod==='agenda'&&<Agenda sedes={sedes}/>}
