@@ -681,7 +681,7 @@ function ExcelPanel({sedes}){
       animais:[{Brinco:'2526',Nome:'Touro 2526',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal'}],
       financeiro:[{Tipo:'despesa',Categoria:'Sanidade',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Cliente:''}],
       estoque:[{Nome:'Ivermectina 1%',Categoria:'Antiparasitário',Quantidade:50,Unidade:'mL',Minimo:10,Sede:'Sede Principal'}],
-      manejos:[{Nome_Manejo:'Vermifugação Maio',Data:'2026-05-10',Sede:'Sede Principal',Num_Cabecas:120,Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85},{Nome_Manejo:'Vermifugação Maio',Data:'2026-05-10',Sede:'Sede Principal',Num_Cabecas:120,Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20}],
+      manejos:[{Brinco:'2526',Nome:'Touro 2526',Categoria:'Touro',Raca:'Charoles',Sexo:'M',Peso:820,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85,Obs:'Dose individual'},{Brinco:'3001',Nome:'Vaca 3001',Categoria:'Matriz',Raca:'Caracu',Sexo:'F',Peso:520,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20,Obs:'Animal novo sera criado se nao existir'}],
       vendas:[{Brinco:'2526',Data:'2026-05-10',Valor:18000,Peso:650,Comprador:'João da Silva',CPF:'000.000.000-00',Telefone:'(46) 99999-9999',Cidade:'Palmas',Estado:'PR',Obs:'GTA 1234'}]
     }
     exportSheet(tipo,tpls[tipo],'Template_'+tipo)
@@ -704,16 +704,34 @@ function ExcelPanel({sedes}){
         await sb.from('estoque').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' item(s) importado(s)!'})
       } else if(importTab==='manejos'){
-        // Agrupar linhas por Nome_Manejo+Data+Sede → um manejo por grupo
+        const existentes=new Map(animais.map(a=>[String(a.brinco||'').trim(),a]))
+        const novosAnimaisMap={}
+        rows.forEach(r=>{
+          const brinco=String(r.Brinco||'').trim()
+          if(!brinco||existentes.has(brinco)||novosAnimaisMap[brinco])return
+          const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0]
+          novosAnimaisMap[brinco]={id:genId(),brinco,nome:r.Nome||'',categoria:r.Categoria||'Touro',raca:r.Raca||'Outro',sexo:r.Sexo==='F'?'F':'M',nascimento:r.Nascimento||'',peso:Number(r.Peso)||0,status:r.Status||'Ativo',sedeId:sede?.id||'',pai:r.Pai||'',mae:r.Mae||''}
+        })
+        const novosAnimais=Object.values(novosAnimaisMap)
+        if(novosAnimais.length)await sb.from('animais').insert(novosAnimais)
+
         const grupos={}
         rows.forEach(r=>{
-          const chave=(r.Nome_Manejo||'')+'||'+(r.Data||'')+'||'+(r.Sede||'')
-          if(!grupos[chave])grupos[chave]={nome:r.Nome_Manejo||'Manejo',data:r.Data||'',sede:r.Sede||'',cabecas:Number(r.Num_Cabecas)||0,meds:[]}
+          const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0]
+          const chave=(r.Nome_Manejo||'Manejo')+'||'+(r.Data||'')+'||'+(sede?.id||'')
+          if(!grupos[chave])grupos[chave]={nome:r.Nome_Manejo||'Manejo',data:r.Data||'',sedeId:sede?.id||'',cabecas:Number(r.Num_Cabecas)||0,meds:[],brincos:new Set(),obs:[]}
+          const brinco=String(r.Brinco||'').trim()
+          if(brinco)grupos[chave].brincos.add(brinco)
+          if(r.Obs)grupos[chave].obs.push(String(r.Obs))
           if(r.Medicamento)grupos[chave].meds.push({id:genId(),nome:String(r.Medicamento),qtd:Number(r.Quantidade)||0,unidade:r.Unidade||'mL',valor:Number(r.Valor_Unit)||0})
         })
-        const novos=Object.values(grupos).map(g=>{const sede=sedes.find(s=>s.nome===g.sede)||sedes[0];return {id:genId(),nome:g.nome,data:g.data,sedeId:sede?.id||'',cabecas:g.cabecas,medicamentos:g.meds,obs:'Importado via Excel',status:'concluido'};})
-        await sb.from('manejos').insert(novos)
-        setImportMsg({type:'ok',text:novos.length+' manejo(s) criado(s) com '+rows.length+' linha(s)!'})
+        const novos=Object.values(grupos).map(g=>{
+          const brincos=[...g.brincos]
+          const obs=['Importado via Excel',brincos.length?'Animais: '+brincos.join(', '):'',...g.obs].filter(Boolean).join(' | ')
+          return {id:genId(),nome:g.nome,data:g.data,sedeId:g.sedeId,cabecas:brincos.length||g.cabecas,medicamentos:g.meds,obs,status:'concluido'}
+        })
+        if(novos.length)await sb.from('manejos').insert(novos)
+        setImportMsg({type:'ok',text:novos.length+' manejo(s) criado(s), '+novosAnimais.length+' animal(is) novo(s) cadastrado(s) e '+rows.length+' linha(s) processada(s)!'})
       } else if(importTab==='vendas'){
         const novos=rows.filter(r=>r.Brinco).map(r=>{const animal=animais.find(a=>String(a.brinco)===String(r.Brinco));return {id:genId(),animalId:animal?.id||'',data:r.Data||'',valor:Number(r.Valor)||0,peso:Number(r.Peso)||0,compradorNome:r.Comprador||'',compradorCpf:r.CPF||'',compradorTelefone:r.Telefone||'',compradorCidade:r.Cidade||'',compradorEstado:r.Estado||'PR',obs:r.Obs||''};})
         await sb.from('vendas').insert(novos)
@@ -730,7 +748,7 @@ function ExcelPanel({sedes}){
   }
   const exportBtns=[{label:'🐂 Rebanho',fn:exportAnimais,color:Y},{label:'💰 Financeiro',fn:exportFin,color:G},{label:'📦 Estoque',fn:exportEst,color:PU}]
   const importTabs=[['animais','🐂 Rebanho'],['manejos','🩺 Manejos (Lida)'],['vendas','💲 Vendas'],['financeiro','💰 Financeiro'],['estoque','📦 Estoque']]
-  const descTab={animais:'Importe animais em massa. Baixe o template, preencha e envie.',manejos:'Importe lidas e manejos sanitários em lote. Uma linha por medicamento. O sistema agrupa automaticamente por manejo.',vendas:'Importe vendas de animais. O status do animal vira "Vendido" e a receita é lançada no financeiro automaticamente.',financeiro:'Importe lançamentos financeiros (despesas e receitas) em lote.',estoque:'Importe itens de estoque em massa.'}
+  const descTab={animais:'Importe animais em massa. Baixe o template, preencha e envie.',manejos:'Importe lidas por brinco, medicamento e sede. Animais novos sao cadastrados automaticamente; animais existentes recebem apenas o manejo.',vendas:'Importe vendas de animais. O status do animal vira "Vendido" e a receita é lançada no financeiro automaticamente.',financeiro:'Importe lançamentos financeiros (despesas e receitas) em lote.',estoque:'Importe itens de estoque em massa.'}
   const card={background:CARD,border:'1px solid '+B,borderRadius:12,padding:22}
   return <div>
     <div style={{color:TX,fontWeight:800,fontSize:22,marginBottom:6}}>📂 Importar / Exportar Excel</div>
