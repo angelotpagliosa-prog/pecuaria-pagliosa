@@ -20,7 +20,7 @@ function Logo({small}){
   return <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2,userSelect:'none'}}>
     <div style={{fontSize:26,fontWeight:900,letterSpacing:-1,lineHeight:1,fontFamily:'Arial Black,sans-serif'}}><span style={{color:G}}>A</span><span style={{color:Y}}>NGEL</span><span style={{color:G}}>O</span></div>
     <div style={{background:Y,padding:'2px 10px'}}><span style={{color:'#0a4a1a',fontWeight:900,fontSize:10,letterSpacing:3}}>PAGLIOSA</span></div>
-    <div style={{color:G,fontSize:8,fontWeight:700,letterSpacing:2,marginTop:2}}>PecuarIA</div>
+    <div style={{color:G,fontSize:8,fontWeight:700,letterSpacing:2,marginTop:2}}>PecuárIA v2</div>
   </div>
 }
 
