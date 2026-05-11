@@ -144,11 +144,12 @@ function Dashboard({animais,financeiro,estoque,manejos,agenda,sedes}){
 
 // ── REBANHO ───────────────────────────────────────────────
 function Rebanho({sedes,user}){
-  const {rows,loading,add,update,remove}=useTable('animais')
+  const {rows,loading,add,update,remove,setRows}=useTable('animais')
   const [modal,setModal]=useState(null)
   const [sel,setSel]=useState(null)
   const [filt,setFilt]=useState(''),[fSede,setFSede]=useState(''),[fStatus,setFStatus]=useState('')
   const [selected,setSelected]=useState([])
+  const [bulk,setBulk]=useState({status:'',categoria:'',sedeId:''})
   const [brinco,setBrinco]=useState(''),[nome,setNome]=useState(''),[raca,setRaca]=useState('Charolês')
   const [sexo,setSexo]=useState('M'),[nasc,setNasc]=useState(''),[peso,setPeso]=useState('')
   const [status,setStatus]=useState('Ativo'),[categoria,setCategoria]=useState('Touro')
@@ -178,10 +179,39 @@ function Rebanho({sedes,user}){
   async function salvarNovo(){await add({id:genId(),...buildObj()});setModal(null);reset();}
   async function salvarEdit(){await update(sel.id,buildObj());setModal(null);}
   async function confirmarDel(){await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null);}
+  async function aplicarLote(){
+    const obj={}
+    if(bulk.status)obj.status=bulk.status
+    if(bulk.categoria)obj.categoria=bulk.categoria
+    if(bulk.sedeId)obj.sedeId=bulk.sedeId
+    if(Object.keys(obj).length===0||selected.length===0)return
+    const ids=[...selected]
+    const {data,error}=await sb.from('animais').update(obj).in('id',ids).select()
+    if(error){alert('Erro ao atualizar animais: '+error.message);return}
+    setRows(p=>p.map(r=>{
+      const novo=data?.find(d=>d.id===r.id)
+      return ids.includes(r.id)?(novo||{...r,...obj}):r
+    }))
+    setSelected([])
+    setBulk({status:'',categoria:'',sedeId:''})
+    setModal(null)
+  }
+  async function excluirSelecionados(){
+    const ids=[...selected]
+    if(ids.length===0)return
+    const {error}=await sb.from('animais').delete().in('id',ids)
+    if(error){alert('Erro ao excluir animais: '+error.message);return}
+    setRows(p=>p.filter(r=>!ids.includes(r.id)))
+    setSelected([])
+    setModal(null)
+  }
   function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
   function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
 
   const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
+  const bulkStatusOpts=[{v:'',l:'Manter status atual'},...['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural','Vendido','Morto'].map(s=>({v:s,l:s}))]
+  const bulkCatOpts=[{v:'',l:'Manter categoria atual'},...['Terneiro','Sobreano','Matriz','Novilha','Touro','Descarte'].map(c=>({v:c,l:c}))]
+  const bulkSedeOpts=[{v:'',l:'Manter sede atual'},...sedeOpts]
   const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Brinco' value={brinco} onChange={setBrinco}/><Inp label='Nome' value={nome} onChange={setNome}/></div>
@@ -206,6 +236,13 @@ function Rebanho({sedes,user}){
       <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{listaFiltrada.length} animais</div>
       {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
     </div>
+    {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+      <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} animal(is) selecionado(s)</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Btn v='g' small onClick={()=>{setBulk({status:'',categoria:'',sedeId:''});setModal('bulk')}}>Aplicar em lote</Btn>
+        <Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn>
+      </div>
+    </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',minWidth:800}}>
@@ -218,6 +255,18 @@ function Rebanho({sedes,user}){
     {modal==='new'&&<Modal title='Cadastrar Novo Animal' onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} label='Salvar Animal' disabled={!brinco}/></Modal>}
     {modal==='edit'&&sel&&<Modal title={'Editar: '+sel.brinco} onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!brinco}/></Modal>}
     {modal==='delete'&&sel&&<Modal title='Excluir Animal' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+sel.brinco+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
+    {modal==='bulk'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} animal(is) selecionado(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Status' value={bulk.status} onChange={v=>setBulk(p=>({...p,status:v}))} opts={bulkStatusOpts}/>
+        <Inp label='Categoria' value={bulk.categoria} onChange={v=>setBulk(p=>({...p,categoria:v}))} opts={bulkCatOpts}/>
+        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={bulkSedeOpts}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.status&&!bulk.categoria&&!bulk.sedeId}/>
+      </div>
+    </Modal>}
+    {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}>
+      <DelConfirm msg={'Excluir '+selected.length+' animal(is) selecionado(s)? Essa acao nao pode ser desfeita.'} onCancel={()=>setModal(null)} onConfirm={excluirSelecionados}/>
+    </Modal>}
   </div>
 }
 
