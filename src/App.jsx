@@ -148,6 +148,7 @@ function Rebanho({sedes,user}){
   const [modal,setModal]=useState(null)
   const [sel,setSel]=useState(null)
   const [filt,setFilt]=useState(''),[fSede,setFSede]=useState(''),[fStatus,setFStatus]=useState('')
+  const [selected,setSelected]=useState([])
   const [brinco,setBrinco]=useState(''),[nome,setNome]=useState(''),[raca,setRaca]=useState('Charolês')
   const [sexo,setSexo]=useState('M'),[nasc,setNasc]=useState(''),[peso,setPeso]=useState('')
   const [status,setStatus]=useState('Ativo'),[categoria,setCategoria]=useState('Touro')
@@ -162,6 +163,9 @@ function Rebanho({sedes,user}){
   const catColors={Terneiro:BL,Sobreano:'#34d399',Matriz:'#f472b6',Novilha:PU,Touro:Y,Descarte:R}
   const lista=rows.filter(a=>(filt===''||a.brinco?.includes(filt)||a.nome?.toLowerCase().includes(filt.toLowerCase()))&&(fSede===''||a.sedeId===fSede)&&(fStatus===''||a.status===fStatus))
   const listaFiltrada=fStatus==='ativo_todos'?rows.filter(a=>statusAtivos.includes(a.status)):lista
+  const visibleIds=listaFiltrada.map(a=>a.id)
+  const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
+  const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
   const canEdit=user.perfil!=='funcionario'
 
   const [modalLimpar,setModalLimpar]=useState(false)
@@ -173,9 +177,12 @@ function Rebanho({sedes,user}){
   }
   async function salvarNovo(){await add({id:genId(),...buildObj()});setModal(null);reset();}
   async function salvarEdit(){await update(sel.id,buildObj());setModal(null);}
-  async function confirmarDel(){await remove(sel.id);setModal(null);}
+  async function confirmarDel(){await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null);}
+  function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+  function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
 
   const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
+  const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Brinco' value={brinco} onChange={setBrinco}/><Inp label='Nome' value={nome} onChange={setNome}/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Raca' value={raca} onChange={setRaca} opts={['Charolês','Caracu','Tabapuã','Nelore','Braford','Brangus','Angus','Hereford','Simmental','Outro'].map(r=>({v:r,l:r}))}/><Inp label='Sexo' value={sexo} onChange={setSexo} opts={[{v:'M',l:'Macho'},{v:'F',l:'Femea'}]}/></div>
@@ -195,15 +202,17 @@ function Rebanho({sedes,user}){
         <option value='ativo_todos'>Todos Ativos</option>
         {['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural','Vendido','Morto'].map(s=><option key={s} value={s}>{s}</option>)}
       </select>
-      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{lista.length} animais</div>
+      <button onClick={toggleVisible} disabled={listaFiltrada.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:listaFiltrada.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{listaFiltrada.length} animais</div>
+      {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
     </div>
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:750}}>
-          <thead><tr><Th>Brinco</Th><Th>Nome</Th><Th>Categoria</Th><Th>Raca</Th><Th>Sexo</Th><Th>Nascimento</Th><Th>Peso</Th><Th>Sede</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
-          <tbody>{listaFiltrada.map(a=>{const sede=sedes.find(s=>s.id===a.sedeId);const sc=statusCores[a.status]||D1;return <TR key={a.id}><Td s={{fontWeight:800,color:Y}}>{a.brinco}</Td><Td s={{fontWeight:600}}>{a.nome||'-'}</Td><Td><Badge label={a.categoria||'-'} color={catColors[a.categoria]||D1}/></Td><Td>{a.raca}</Td><Td>{a.sexo==='M'?'Macho':'Femea'}</Td><Td s={{color:D1}}>{fmtDate(a.nascimento)}</Td><Td s={{fontWeight:700}}>{a.peso?a.peso+' kg':'-'}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td><Badge label={a.status} color={sc} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(a);loadF(a);setModal('edit');}} onDel={()=>{setSel(a);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:800}}>
+          <thead><tr><Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th><Th>Brinco</Th><Th>Nome</Th><Th>Categoria</Th><Th>Raca</Th><Th>Sexo</Th><Th>Nascimento</Th><Th>Peso</Th><Th>Sede</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
+          <tbody>{listaFiltrada.map(a=>{const sede=sedes.find(s=>s.id===a.sedeId);const sc=statusCores[a.status]||D1;const marcado=selected.includes(a.id);return <TR key={a.id}><Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(a.id)} style={checkStyle}/></Td><Td s={{fontWeight:800,color:Y}}>{a.brinco}</Td><Td s={{fontWeight:600}}>{a.nome||'-'}</Td><Td><Badge label={a.categoria||'-'} color={catColors[a.categoria]||D1}/></Td><Td>{a.raca}</Td><Td>{a.sexo==='M'?'Macho':'Femea'}</Td><Td s={{color:D1}}>{fmtDate(a.nascimento)}</Td><Td s={{fontWeight:700}}>{a.peso?a.peso+' kg':'-'}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td><Badge label={a.status} color={sc} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(a);loadF(a);setModal('edit');}} onDel={()=>{setSel(a);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
-        {lista.length===0&&<Empty/>}
+        {listaFiltrada.length===0&&<Empty/>}
       </div>}
     </div>
     {modal==='new'&&<Modal title='Cadastrar Novo Animal' onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} label='Salvar Animal' disabled={!brinco}/></Modal>}
