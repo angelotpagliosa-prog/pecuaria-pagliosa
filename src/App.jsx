@@ -974,6 +974,7 @@ const NAV=[
   {id:'reproducao',icon:'🔬',label:'Reproducao',g:'Zootecnia'},
   {id:'manejos',icon:'🩺',label:'Manejos',g:'Zootecnia'},
   {id:'semen',icon:'🧊',label:'Controle de Sêmen',g:'Zootecnia'},
+  {id:'financeiro',icon:'💰',label:'Financeiro',g:'Gestao'},
   {id:'vendas',icon:'💲',label:'Vendas',g:'Gestao'},
   {id:'estoque',icon:'📦',label:'Estoque',g:'Gestao'},
   {id:'agenda',icon:'📅',label:'Agenda',g:'Gestao'},
@@ -1055,6 +1056,7 @@ export default function App(){
         {mod==='reproducao'&&<Reproducao animais={animais} sedes={sedes} user={user}/>}
         {mod==='manejos'&&<Manejos sedes={sedes} user={user}/>}
         {mod==='semen'&&<Semen sedes={sedes} user={user}/>}
+        {mod==='financeiro'&&<Financeiro clientes={clientes} user={user}/>}
         {mod==='vendas'&&<Vendas animais={animais} sedes={sedes} user={user}/>}
         {mod==='estoque'&&<Estoque sedes={sedes} user={user}/>}
         {mod==='agenda'&&<Agenda sedes={sedes}/>}
