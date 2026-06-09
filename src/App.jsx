@@ -490,38 +490,100 @@ function Reproducao({animais,sedes,user}){
 
 // ── MANEJOS ───────────────────────────────────────────────
 function Manejos({sedes,user}){
-  const {rows,loading,add}=useTable('manejos')
+  const {rows,loading,add,update,remove,setRows}=useTable('manejos')
   const blankMed=()=>({id:genId(),nome:'',qtd:'',unidade:'mL',valor:''})
-  const blankForm={nome:'',data:'',sedeId:sedes[0]?.id||'',cabecas:'',medicamentos:[blankMed()],obs:'',status:'pendente'}
-  const [modal,setModal]=useState(false),[detail,setDetail]=useState(null),[form,setForm]=useState(blankForm)
+  const makeBlankForm=()=>({nome:'',data:'',sedeId:sedes[0]?.id||'',cabecas:'',medicamentos:[blankMed()],obs:'',status:'pendente'})
+  const [modal,setModal]=useState(null),[detail,setDetail]=useState(null),[sel,setSel]=useState(null)
+  const [form,setForm]=useState(makeBlankForm())
+  const [selected,setSelected]=useState([])
+  const [bulk,setBulk]=useState({status:'',sedeId:''})
+  const canEdit=user.perfil!=='funcionario'
+  const visibleIds=rows.map(m=>m.id)
+  const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
+  const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
   function calcTotal(meds){return (Array.isArray(meds)?meds:[]).reduce((s,m)=>s+(parseFloat(m.qtd||0)*parseFloat(m.valor||0)),0);}
   const ft=calcTotal(form.medicamentos),fpp=form.cabecas>0?ft/parseFloat(form.cabecas||1):0
+  function resetForm(){setForm(makeBlankForm());setSel(null);}
+  function buildManejo(){return {...form,cabecas:parseInt(form.cabecas)||0,medicamentos:form.medicamentos.map(m=>({...m,qtd:parseFloat(m.qtd)||0,valor:parseFloat(m.valor)||0}))};}
+  function loadManejo(m){
+    const meds=Array.isArray(m.medicamentos)&&m.medicamentos.length?m.medicamentos:[blankMed()]
+    setForm({nome:m.nome||'',data:m.data||'',sedeId:m.sedeId||sedes[0]?.id||'',cabecas:String(m.cabecas||''),medicamentos:meds.map(md=>({id:md.id||genId(),nome:md.nome||'',qtd:String(md.qtd||''),unidade:md.unidade||'mL',valor:String(md.valor||'')})),obs:m.obs||'',status:m.status||'pendente'})
+  }
   function addMed(){setForm(f=>({...f,medicamentos:[...f.medicamentos,blankMed()]}));}
   function updMed(i,k,v){setForm(f=>({...f,medicamentos:f.medicamentos.map((m,idx)=>idx===i?{...m,[k]:v}:m)}));}
   function remMed(i){setForm(f=>({...f,medicamentos:f.medicamentos.filter((_,idx)=>idx!==i)}));}
-  async function salvar(){
-    const obj={id:genId(),...form,cabecas:parseInt(form.cabecas)||0,medicamentos:form.medicamentos.map(m=>({...m,qtd:parseFloat(m.qtd)||0,valor:parseFloat(m.valor)||0}))}
-    await add(obj);setModal(false);setForm(blankForm);
+  async function salvarNovo(){
+    await add({id:genId(),...buildManejo()});setModal(null);resetForm();
   }
+  async function salvarEdit(){
+    if(!sel)return
+    await update(sel.id,buildManejo());setModal(null);resetForm();
+  }
+  async function confirmarDel(){
+    if(!sel)return
+    await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null);setSel(null);
+  }
+  async function aplicarLote(){
+    const obj={}
+    if(bulk.status)obj.status=bulk.status
+    if(bulk.sedeId)obj.sedeId=bulk.sedeId
+    if(Object.keys(obj).length===0||selected.length===0)return
+    const ids=[...selected]
+    const {data,error}=await sb.from('manejos').update(obj).in('id',ids).select()
+    if(error){alert('Erro ao atualizar manejos: '+error.message);return}
+    setRows(p=>p.map(r=>{
+      const novo=data?.find(d=>d.id===r.id)
+      return ids.includes(r.id)?(novo||{...r,...obj}):r
+    }))
+    setSelected([])
+    setBulk({status:'',sedeId:''})
+    setModal(null)
+  }
+  async function excluirSelecionados(){
+    const ids=[...selected]
+    if(ids.length===0)return
+    const {error}=await sb.from('manejos').delete().in('id',ids)
+    if(error){alert('Erro ao excluir manejos: '+error.message);return}
+    setRows(p=>p.filter(r=>!ids.includes(r.id)))
+    setSelected([])
+    setModal(null)
+  }
+  function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+  function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
   const sC={concluido:G,pendente:Y,cancelado:R},sL={concluido:'Concluido',pendente:'Pendente',cancelado:'Cancelado'}
+  const bulkStatusOpts=[{v:'',l:'Manter status atual'},{v:'pendente',l:'Pendente'},{v:'concluido',l:'Concluido'},{v:'cancelado',l:'Cancelado'}]
+  const bulkSedeOpts=[{v:'',l:'Manter sede atual'},...sedes.map(s=>({v:s.id,l:s.nome}))]
+  const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   return <div>
-    <SH title='🩺 Manejos Sanitarios' action={user.perfil!=='funcionario'&&<Btn onClick={()=>setModal(true)}>+ Novo Manejo</Btn>}/>
+    <SH title='🩺 Manejos Sanitarios' action={canEdit&&<Btn onClick={()=>{resetForm();setModal('new')}}>+ Novo Manejo</Btn>}/>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:12,marginBottom:20}}>
       <StatCard icon='🩺' label='Total' value={rows.length} color={Y}/>
       <StatCard icon='💊' label='Custo Total' value={fmtR(rows.reduce((s,m)=>s+calcTotal(m.medicamentos),0))} color={PU}/>
       <StatCard icon='✅' label='Concluidos' value={rows.filter(m=>m.status==='concluido').length} color={G}/>
       <StatCard icon='⏳' label='Pendentes' value={rows.filter(m=>m.status==='pendente').length} color={Y}/>
     </div>
+    {canEdit&&<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+      <button onClick={toggleVisible} disabled={rows.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:rows.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{rows.length} manejo(s)</div>
+      {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
+    </div>}
+    {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+      <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} manejo(s) selecionado(s)</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Btn v='g' small onClick={()=>{setBulk({status:'',sedeId:''});setModal('bulk')}}>Aplicar em lote</Btn>
+        <Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn>
+      </div>
+    </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead><tr><Th>Manejo</Th><Th>Data</Th><Th>Sede</Th><Th>Cabecas</Th><Th>Custo Total</Th><Th>Custo/Cabeca</Th><Th>Status</Th></tr></thead>
-          <tbody>{rows.map(m=>{const total=calcTotal(m.medicamentos);const cpp=m.cabecas>0?total/m.cabecas:0;const sede=sedes.find(s=>s.id===m.sedeId);return <TR key={m.id}><Td s={{fontWeight:700,color:BL,textDecoration:'underline',cursor:'pointer'}} onClick={()=>setDetail(m)}>{m.nome}</Td><Td s={{color:D1}}>{fmtDate(m.data)}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td s={{fontWeight:700,textAlign:'center'}}>{m.cabecas}</Td><Td s={{fontWeight:800,color:PU}}>{fmtR(total)}</Td><Td s={{fontWeight:700,color:Y}}>{fmtR(cpp)}</Td><Td><Badge label={sL[m.status]||m.status} color={sC[m.status]||D1} dot/></Td></TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Manejo</Th><Th>Data</Th><Th>Sede</Th><Th>Cabecas</Th><Th>Custo Total</Th><Th>Custo/Cabeca</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
+          <tbody>{rows.map(m=>{const total=calcTotal(m.medicamentos);const cpp=m.cabecas>0?total/m.cabecas:0;const sede=sedes.find(s=>s.id===m.sedeId);const marcado=selected.includes(m.id);return <TR key={m.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(m.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:700,color:BL,textDecoration:'underline',cursor:'pointer'}} onClick={()=>setDetail(m)}>{m.nome}</Td><Td s={{color:D1}}>{fmtDate(m.data)}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td s={{fontWeight:700,textAlign:'center'}}>{m.cabecas}</Td><Td s={{fontWeight:800,color:PU}}>{fmtR(total)}</Td><Td s={{fontWeight:700,color:Y}}>{fmtR(cpp)}</Td><Td><Badge label={sL[m.status]||m.status} color={sC[m.status]||D1} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(m);loadManejo(m);setModal('edit');}} onDel={()=>{setSel(m);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {rows.length===0&&<Empty msg='Nenhum manejo registrado.'/>}
       </div>}
     </div>
-    {modal&&<Modal title='Registrar Manejo Sanitario' onClose={()=>setModal(false)} wide>
+    {(modal==='new'||modal==='edit')&&<Modal title={modal==='edit'?'Editar Manejo':'Registrar Manejo Sanitario'} onClose={()=>{setModal(null);resetForm();}} wide>
       <div style={{display:'flex',flexDirection:'column',gap:14}}>
         <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}><Inp label='Nome' value={form.nome} onChange={v=>setForm(f=>({...f,nome:v}))}/><Inp label='Data' value={form.data} onChange={v=>setForm(f=>({...f,data:v}))} type='date'/></div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Sede' value={form.sedeId} onChange={v=>setForm(f=>({...f,sedeId:v}))} opts={sedes.map(s=>({v:s.id,l:s.nome}))}/><Inp label='Cabecas' value={form.cabecas} onChange={v=>setForm(f=>({...f,cabecas:v}))} type='number'/></div>
@@ -545,8 +607,22 @@ function Manejos({sedes,user}){
           </div>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Observacoes' value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))}/><Inp label='Status' value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} opts={[{v:'pendente',l:'Pendente'},{v:'concluido',l:'Concluido'},{v:'cancelado',l:'Cancelado'}]}/></div>
-        <MFooter onCancel={()=>setModal(false)} onSave={salvar} label='Registrar Manejo' disabled={!form.nome||!form.cabecas}/>
+        <MFooter onCancel={()=>{setModal(null);resetForm();}} onSave={modal==='edit'?salvarEdit:salvarNovo} label={modal==='edit'?'Salvar Alteracoes':'Registrar Manejo'} disabled={!form.nome||!form.cabecas}/>
       </div>
+    </Modal>}
+    {modal==='delete'&&sel&&<Modal title='Excluir Manejo' onClose={()=>{setModal(null);setSel(null);}}>
+      <DelConfirm msg={'Excluir o manejo "'+sel.nome+'"?'} onCancel={()=>{setModal(null);setSel(null);}} onConfirm={confirmarDel}/>
+    </Modal>}
+    {modal==='bulk'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} manejo(s) selecionado(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Status' value={bulk.status} onChange={v=>setBulk(p=>({...p,status:v}))} opts={bulkStatusOpts}/>
+        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={bulkSedeOpts}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.status&&!bulk.sedeId}/>
+      </div>
+    </Modal>}
+    {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}>
+      <DelConfirm msg={'Excluir '+selected.length+' manejo(s) selecionado(s)? Essa acao nao pode ser desfeita.'} onCancel={()=>setModal(null)} onConfirm={excluirSelecionados}/>
     </Modal>}
     {detail&&<Modal title={detail.nome} onClose={()=>setDetail(null)} wide>
       <div style={{display:'flex',flexDirection:'column',gap:16}}>
