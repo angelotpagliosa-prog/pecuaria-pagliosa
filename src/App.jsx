@@ -272,29 +272,69 @@ function Rebanho({sedes,user}){
 
 // ── ESTOQUE ───────────────────────────────────────────────
 function Estoque({sedes,user}){
-  const {rows,loading,add,update,remove}=useTable('estoque')
+  const {rows,loading,add,update,remove,setRows}=useTable('estoque')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null)
   const blank={nome:'',categoria:'Hormônio',quantidade:'',unidade:'unid',minimo:'',sedeId:sedes[0]?.id||''}
   const [form,setForm]=useState(blank)
+  const [selected,setSelected]=useState([])
+  const [bulk,setBulk]=useState({categoria:'',unidade:'',minimo:'',sedeId:''})
   const fv=v=>setForm(p=>({...p,...v}))
   const canEdit=user.perfil!=='funcionario'
+  const visibleIds=rows.map(e=>e.id)
+  const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
+  const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
   async function salvarNovo(){await add({id:genId(),...form,quantidade:Number(form.quantidade),minimo:Number(form.minimo)});setModal(null);}
   async function salvarEdit(){await update(sel.id,{...form,quantidade:Number(form.quantidade),minimo:Number(form.minimo)});setModal(null);}
-  async function confirmarDel(){await remove(sel.id);setModal(null);}
+  async function confirmarDel(){await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null);}
+  async function aplicarLote(){
+    const obj={}
+    if(bulk.categoria)obj.categoria=bulk.categoria
+    if(bulk.unidade)obj.unidade=bulk.unidade
+    if(bulk.sedeId)obj.sedeId=bulk.sedeId
+    if(bulk.minimo!=='')obj.minimo=Number(bulk.minimo)
+    if(Object.keys(obj).length===0||selected.length===0)return
+    const ids=[...selected]
+    const {data,error}=await sb.from('estoque').update(obj).in('id',ids).select()
+    if(error){alert('Erro ao atualizar estoque: '+error.message);return}
+    setRows(p=>p.map(r=>ids.includes(r.id)?(data?.find(d=>d.id===r.id)||{...r,...obj}):r))
+    setSelected([]);setBulk({categoria:'',unidade:'',minimo:'',sedeId:''});setModal(null)
+  }
+  async function excluirSelecionados(){
+    const ids=[...selected]
+    if(ids.length===0)return
+    const {error}=await sb.from('estoque').delete().in('id',ids)
+    if(error){alert('Erro ao excluir estoque: '+error.message);return}
+    setRows(p=>p.filter(r=>!ids.includes(r.id)))
+    setSelected([]);setModal(null)
+  }
+  function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+  function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
   const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
+  const catEstOpts=['Hormônio','Antiparasitário','Vacina','Ração','Sêmen','Equipamento','Outro'].map(c=>({v:c,l:c}))
+  const unidadeOpts=['unid','mL','L','kg','g','dose','comp'].map(u=>({v:u,l:u}))
+  const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   const fields=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <Inp label='Nome do Item' value={form.nome} onChange={v=>fv({nome:v})}/>
-    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Categoria' value={form.categoria} onChange={v=>fv({categoria:v})} opts={['Hormônio','Antiparasitário','Vacina','Ração','Sêmen','Equipamento','Outro'].map(c=>({v:c,l:c}))}/><Inp label='Unidade' value={form.unidade} onChange={v=>fv({unidade:v})} opts={['unid','mL','L','kg','g','dose','comp'].map(u=>({v:u,l:u}))}/></div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Categoria' value={form.categoria} onChange={v=>fv({categoria:v})} opts={catEstOpts}/><Inp label='Unidade' value={form.unidade} onChange={v=>fv({unidade:v})} opts={unidadeOpts}/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Qtd. Atual' value={form.quantidade} onChange={v=>fv({quantidade:v})} type='number'/><Inp label='Estoque Minimo' value={form.minimo} onChange={v=>fv({minimo:v})} type='number'/></div>
     <Inp label='Sede' value={form.sedeId} onChange={v=>fv({sedeId:v})} opts={sedeOpts}/>
   </div>
   return <div>
     <SH title='📦 Estoque e Insumos' action={canEdit&&<Btn onClick={()=>{setForm(blank);setModal('new')}}>+ Novo Item</Btn>}/>
+    {canEdit&&<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+      <button onClick={toggleVisible} disabled={rows.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:rows.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{rows.length} item(ns)</div>
+      {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
+    </div>}
+    {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+      <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} item(ns) selecionado(s)</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Btn v='g' small onClick={()=>{setBulk({categoria:'',unidade:'',minimo:'',sedeId:''});setModal('bulk')}}>Aplicar em lote</Btn><Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn></div>
+    </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:600}}>
-          <thead><tr><Th>Item</Th><Th>Categoria</Th><Th>Qtd. Atual</Th><Th>Minimo</Th><Th>Sede</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
-          <tbody>{rows.map(e=>{const crit=e.quantidade<=e.minimo;const sede=sedes.find(s=>s.id===e.sedeId);return <TR key={e.id}><Td s={{fontWeight:600}}>{e.nome}</Td><Td><Badge label={e.categoria} color={PU}/></Td><Td s={{fontWeight:800,color:crit?R:TX}}>{e.quantidade+' '+e.unidade}</Td><Td s={{color:D1}}>{e.minimo+' '+e.unidade}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td><Badge label={crit?'Critico':'Normal'} color={crit?R:G} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(e);setForm({nome:e.nome,categoria:e.categoria,quantidade:e.quantidade,unidade:e.unidade,minimo:e.minimo,sedeId:e.sedeId});setModal('edit');}} onDel={()=>{setSel(e);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:700}}>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Item</Th><Th>Categoria</Th><Th>Qtd. Atual</Th><Th>Minimo</Th><Th>Sede</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
+          <tbody>{rows.map(e=>{const crit=e.quantidade<=e.minimo;const sede=sedes.find(s=>s.id===e.sedeId);const marcado=selected.includes(e.id);return <TR key={e.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(e.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:600}}>{e.nome}</Td><Td><Badge label={e.categoria} color={PU}/></Td><Td s={{fontWeight:800,color:crit?R:TX}}>{e.quantidade+' '+e.unidade}</Td><Td s={{color:D1}}>{e.minimo+' '+e.unidade}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td><Badge label={crit?'Critico':'Normal'} color={crit?R:G} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(e);setForm({nome:e.nome,categoria:e.categoria,quantidade:e.quantidade,unidade:e.unidade,minimo:e.minimo,sedeId:e.sedeId});setModal('edit');}} onDel={()=>{setSel(e);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {rows.length===0&&<Empty/>}
       </div>}
@@ -302,26 +342,66 @@ function Estoque({sedes,user}){
     {modal==='new'&&<Modal title='Novo Item' onClose={()=>setModal(null)}>{fields}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} label='Salvar Item' disabled={!form.nome}/></Modal>}
     {modal==='edit'&&sel&&<Modal title={'Editar: '+sel.nome} onClose={()=>setModal(null)}>{fields}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.nome}/></Modal>}
     {modal==='delete'&&sel&&<Modal title='Excluir Item' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+sel.nome+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
+    {modal==='bulk'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} item(ns) selecionado(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Categoria' value={bulk.categoria} onChange={v=>setBulk(p=>({...p,categoria:v}))} opts={[{v:'',l:'Manter categoria atual'},...catEstOpts]}/>
+        <Inp label='Unidade' value={bulk.unidade} onChange={v=>setBulk(p=>({...p,unidade:v}))} opts={[{v:'',l:'Manter unidade atual'},...unidadeOpts]}/>
+        <Inp label='Estoque Minimo' value={bulk.minimo} onChange={v=>setBulk(p=>({...p,minimo:v}))} type='number' ph='Deixe vazio para manter'/>
+        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={[{v:'',l:'Manter sede atual'},...sedeOpts]}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.categoria&&!bulk.unidade&&!bulk.sedeId&&bulk.minimo===''}/>
+      </div>
+    </Modal>}
+    {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+selected.length+' item(ns) selecionado(s)?'} onCancel={()=>setModal(null)} onConfirm={excluirSelecionados}/></Modal>}
   </div>
 }
 
 // ── CLIENTES E FORNECEDORES ──────────────────────────────
 function ClientesFornecedores({user}){
-  const {rows,loading,add,update,remove}=useTable('clientes')
+  const {rows,loading,add,update,remove,setRows}=useTable('clientes')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos')
   const blank={nome:'',tipo:'cliente',documento:'',telefone:'',email:'',cidade:'',estado:'PR',obs:''}
   const [form,setForm]=useState(blank)
+  const [selected,setSelected]=useState([])
+  const [bulk,setBulk]=useState({tipo:'',cidade:'',estado:''})
   const fv=v=>setForm(p=>({...p,...v}))
   const canEdit=user.perfil!=='funcionario'
   const lista=(tab==='todos'?rows:rows.filter(c=>(c.tipo||'cliente')===tab))
+  const visibleIds=lista.map(c=>c.id)
+  const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
+  const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
   const tipoColor={cliente:G,fornecedor:Y,ambos:BL}
+  const tipoOpts=[{v:'cliente',l:'Cliente'},{v:'fornecedor',l:'Fornecedor'},{v:'ambos',l:'Cliente e Fornecedor'}]
   async function salvarNovo(){try{await add({id:genId(),...form});setModal(null);setForm(blank)}catch(e){alert('Erro ao salvar: '+e.message)}}
   async function salvarEdit(){try{await update(sel.id,form);setModal(null)}catch(e){alert('Erro ao salvar: '+e.message)}}
-  async function confirmarDel(){try{await remove(sel.id);setModal(null)}catch(e){alert('Erro ao excluir: '+e.message)}}
+  async function confirmarDel(){try{await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null)}catch(e){alert('Erro ao excluir: '+e.message)}}
+  async function aplicarLote(){
+    const obj={}
+    if(bulk.tipo)obj.tipo=bulk.tipo
+    if(bulk.cidade)obj.cidade=bulk.cidade
+    if(bulk.estado)obj.estado=bulk.estado
+    if(Object.keys(obj).length===0||selected.length===0)return
+    const ids=[...selected]
+    const {data,error}=await sb.from('clientes').update(obj).in('id',ids).select()
+    if(error){alert('Erro ao atualizar cadastros: '+error.message);return}
+    setRows(p=>p.map(r=>ids.includes(r.id)?(data?.find(d=>d.id===r.id)||{...r,...obj}):r))
+    setSelected([]);setBulk({tipo:'',cidade:'',estado:''});setModal(null)
+  }
+  async function excluirSelecionados(){
+    const ids=[...selected]
+    if(ids.length===0)return
+    const {error}=await sb.from('clientes').delete().in('id',ids)
+    if(error){alert('Erro ao excluir cadastros: '+error.message);return}
+    setRows(p=>p.filter(r=>!ids.includes(r.id)))
+    setSelected([]);setModal(null)
+  }
+  function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+  function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
+  const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
       <Inp label='Nome / Razao Social' value={form.nome} onChange={v=>fv({nome:v})}/>
-      <Inp label='Tipo' value={form.tipo} onChange={v=>fv({tipo:v})} opts={[{v:'cliente',l:'Cliente'},{v:'fornecedor',l:'Fornecedor'},{v:'ambos',l:'Cliente e Fornecedor'}]}/>
+      <Inp label='Tipo' value={form.tipo} onChange={v=>fv({tipo:v})} opts={tipoOpts}/>
     </div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
       <Inp label='CPF / CNPJ' value={form.documento} onChange={v=>fv({documento:v})}/>
@@ -343,13 +423,22 @@ function ClientesFornecedores({user}){
       <StatCard icon='📋' label='Total' value={rows.length} color={PU}/>
     </div>
     <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
-      {[['todos','Todos'],['cliente','Clientes'],['fornecedor','Fornecedores'],['ambos','Ambos']].map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:12,cursor:'pointer'}}>{t[1]}</button>)}
+      {[['todos','Todos'],['cliente','Clientes'],['fornecedor','Fornecedores'],['ambos','Ambos']].map(t=><button key={t[0]} onClick={()=>{setTab(t[0]);}} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:12,cursor:'pointer'}}>{t[1]}</button>)}
     </div>
+    {canEdit&&<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+      <button onClick={toggleVisible} disabled={lista.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:lista.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{lista.length} cadastro(s)</div>
+      {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
+    </div>}
+    {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+      <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} cadastro(s) selecionado(s)</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Btn v='g' small onClick={()=>{setBulk({tipo:'',cidade:'',estado:''});setModal('bulk')}}>Aplicar em lote</Btn><Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn></div>
+    </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
-          <thead><tr><Th>Nome</Th><Th>Tipo</Th><Th>CPF/CNPJ</Th><Th>Telefone</Th><Th>E-mail</Th><Th>Cidade/UF</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
-          <tbody>{lista.map(c=>{const tc=tipoColor[c.tipo||'cliente']||D1;return <TR key={c.id}><Td s={{fontWeight:700}}>{c.nome}</Td><Td><Badge label={c.tipo||'cliente'} color={tc}/></Td><Td s={{color:D1,fontSize:12}}>{c.documento||'-'}</Td><Td s={{color:D1,fontSize:12}}>{c.telefone||'-'}</Td><Td s={{color:D1,fontSize:12}}>{c.email||'-'}</Td><Td s={{color:D1,fontSize:12}}>{c.cidade?c.cidade+'/'+(c.estado||''):'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(c);setForm({nome:c.nome||'',tipo:c.tipo||'cliente',documento:c.documento||'',telefone:c.telefone||'',email:c.email||'',cidade:c.cidade||'',estado:c.estado||'PR',obs:c.obs||''});setModal('edit');}} onDel={()=>{setSel(c);setModal('delete');}}/></Td>}</TR>})}</tbody>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Nome</Th><Th>Tipo</Th><Th>CPF/CNPJ</Th><Th>Telefone</Th><Th>E-mail</Th><Th>Cidade/UF</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
+          <tbody>{lista.map(c=>{const tc=tipoColor[c.tipo||'cliente']||D1;const marcado=selected.includes(c.id);return <TR key={c.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(c.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:700}}>{c.nome}</Td><Td><Badge label={c.tipo||'cliente'} color={tc}/></Td><Td s={{color:D1,fontSize:12}}>{c.documento||'-'}</Td><Td s={{color:D1,fontSize:12}}>{c.telefone||'-'}</Td><Td s={{color:D1,fontSize:12}}>{c.email||'-'}</Td><Td s={{color:D1,fontSize:12}}>{c.cidade?c.cidade+'/'+(c.estado||''):'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(c);setForm({nome:c.nome||'',tipo:c.tipo||'cliente',documento:c.documento||'',telefone:c.telefone||'',email:c.email||'',cidade:c.cidade||'',estado:c.estado||'PR',obs:c.obs||''});setModal('edit');}} onDel={()=>{setSel(c);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {lista.length===0&&<Empty msg='Nenhum cliente ou fornecedor cadastrado.'/>}
       </div>}
@@ -357,6 +446,16 @@ function ClientesFornecedores({user}){
     {modal==='new'&&<Modal title='Novo Cliente / Fornecedor' onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} disabled={!form.nome}/></Modal>}
     {modal==='edit'&&sel&&<Modal title={'Editar: '+sel.nome} onClose={()=>setModal(null)}>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.nome}/></Modal>}
     {modal==='delete'&&sel&&<Modal title='Excluir Cadastro' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+sel.nome+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
+    {modal==='bulk'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} cadastro(s) selecionado(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Tipo' value={bulk.tipo} onChange={v=>setBulk(p=>({...p,tipo:v}))} opts={[{v:'',l:'Manter tipo atual'},...tipoOpts]}/>
+        <Inp label='Cidade' value={bulk.cidade} onChange={v=>setBulk(p=>({...p,cidade:v}))} ph='Deixe vazio para manter'/>
+        <Inp label='Estado' value={bulk.estado} onChange={v=>setBulk(p=>({...p,estado:v}))} ph='Ex: PR'/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.tipo&&!bulk.cidade&&!bulk.estado}/>
+      </div>
+    </Modal>}
+    {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+selected.length+' cadastro(s) selecionado(s)?'} onCancel={()=>setModal(null)} onConfirm={excluirSelecionados}/></Modal>}
   </div>
 }
 
@@ -365,18 +464,24 @@ const CAT_DESP=['Sanidade','Alimentação/Ração','Mão de Obra','Combustível'
 const CAT_REC=['Venda de Animais','Arrendamento','Serviços','Outros']
 const catCorFin={Sanidade:PU,'Alimentação/Ração':'#34d399','Mão de Obra':BL,Combustível:'#fb923c',Manutenção:Y,Reprodução:'#f472b6','Impostos/Taxas':R,Transporte:'#a3e635','Energia Elétrica':'#facc15','Venda de Animais':G,Arrendamento:G,Serviços:G,Outros:D1}
 function Financeiro({clientes,user}){
-  const {rows,loading,add,update,remove}=useTable('financeiro')
+  const {rows,loading,add,update,remove,setRows}=useTable('financeiro')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos'),[fCat,setFCat]=useState('')
   const blank={tipo:'despesa',categoria:'Outros',descricao:'',valor:'',data:'',clienteId:'',notaNumero:'',notaSerie:'',notaChave:'',notaEmissao:'',notaUrl:'',notaObs:''}
   const [form,setForm]=useState(blank)
   const [notaFile,setNotaFile]=useState(null)
   const [uploading,setUploading]=useState(false)
+  const [selected,setSelected]=useState([])
+  const [bulk,setBulk]=useState({tipo:'',categoria:'',data:'',clienteId:''})
   const fv=v=>setForm(p=>({...p,...v}))
   const rec=rows.filter(x=>x.tipo==='venda').reduce((s,x)=>s+Number(x.valor),0)
   const dep=rows.filter(x=>x.tipo==='despesa').reduce((s,x)=>s+Number(x.valor),0)
   const lista=(tab==='todos'?rows:rows.filter(x=>x.tipo===tab)).filter(x=>fCat===''||x.categoria===fCat)
   const canEdit=user.perfil!=='funcionario'
+  const visibleIds=lista.map(x=>x.id)
+  const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
+  const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
   const catOpts=form.tipo==='venda'?CAT_REC.map(c=>({v:c,l:c})):CAT_DESP.map(c=>({v:c,l:c}))
+  const allCatOpts=[...new Set([...CAT_REC,...CAT_DESP])].map(c=>({v:c,l:c}))
   async function uploadNota(id){
     if(!notaFile)return form.notaUrl||''
     const safe=notaFile.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9._-]/g,'-')
@@ -397,7 +502,31 @@ function Financeiro({clientes,user}){
     catch(e){alert('Erro ao salvar: '+e.message)}
     finally{setUploading(false)}
   }
-  async function confirmarDel(){try{await remove(sel.id);setModal(null)}catch(e){alert('Erro ao excluir: '+e.message)}}
+  async function confirmarDel(){try{await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null)}catch(e){alert('Erro ao excluir: '+e.message)}}
+  async function aplicarLote(){
+    const obj={}
+    if(bulk.tipo)obj.tipo=bulk.tipo
+    if(bulk.categoria)obj.categoria=bulk.categoria
+    if(bulk.data)obj.data=bulk.data
+    if(bulk.clienteId!=='')obj.clienteId=bulk.clienteId
+    if(Object.keys(obj).length===0||selected.length===0)return
+    const ids=[...selected]
+    const {data,error}=await sb.from('financeiro').update(obj).in('id',ids).select()
+    if(error){alert('Erro ao atualizar lancamentos: '+error.message);return}
+    setRows(p=>p.map(r=>ids.includes(r.id)?(data?.find(d=>d.id===r.id)||{...r,...obj}):r))
+    setSelected([]);setBulk({tipo:'',categoria:'',data:'',clienteId:''});setModal(null)
+  }
+  async function excluirSelecionados(){
+    const ids=[...selected]
+    if(ids.length===0)return
+    const {error}=await sb.from('financeiro').delete().in('id',ids)
+    if(error){alert('Erro ao excluir lancamentos: '+error.message);return}
+    setRows(p=>p.filter(r=>!ids.includes(r.id)))
+    setSelected([]);setModal(null)
+  }
+  function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+  function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
+  const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   const cliOpts=[{v:'',l:'Nenhum'},...clientes.map(c=>({v:c.id,l:c.nome}))]
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
@@ -441,11 +570,20 @@ function Financeiro({clientes,user}){
       {[['todos','Todos'],['despesa','Despesas'],['venda','Receitas']].map(t=><button key={t[0]} onClick={()=>{setTab(t[0]);setFCat('');}} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:12,cursor:'pointer'}}>{t[1]}</button>)}
       {fCat&&<button onClick={()=>setFCat('')} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+R+'40',background:R+'15',color:R,fontWeight:700,fontSize:11,cursor:'pointer'}}>✕ {fCat}</button>}
     </div>
+    {canEdit&&<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+      <button onClick={toggleVisible} disabled={lista.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:lista.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{lista.length} lancamento(s)</div>
+      {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
+    </div>}
+    {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+      <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} lancamento(s) selecionado(s)</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Btn v='g' small onClick={()=>{setBulk({tipo:'',categoria:'',data:'',clienteId:''});setModal('bulk')}}>Aplicar em lote</Btn><Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn></div>
+    </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
-          <thead><tr><Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Cliente/Fornecedor</Th><Th>Nota</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
-          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;const temNota=x.notaNumero||x.notaUrl||x.notaChave;return <TR key={x.id}><Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td><Td>{temNota?(x.notaUrl?<a href={x.notaUrl} target='_blank' rel='noreferrer' style={{color:Y,textDecoration:'none',fontWeight:700}}>NF {x.notaNumero||'anexo'}</a>:<Badge label={'NF '+(x.notaNumero||'informada')} color={Y}/>):<span style={{color:D2}}>-</span>}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setNotaFile(null);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||'',notaNumero:x.notaNumero||'',notaSerie:x.notaSerie||'',notaChave:x.notaChave||'',notaEmissao:x.notaEmissao||'',notaUrl:x.notaUrl||'',notaObs:x.notaObs||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Cliente/Fornecedor</Th><Th>Nota</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
+          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;const temNota=x.notaNumero||x.notaUrl||x.notaChave;const marcado=selected.includes(x.id);return <TR key={x.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(x.id)} style={checkStyle}/></Td>}<Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td><Td>{temNota?(x.notaUrl?<a href={x.notaUrl} target='_blank' rel='noreferrer' style={{color:Y,textDecoration:'none',fontWeight:700}}>NF {x.notaNumero||'anexo'}</a>:<Badge label={'NF '+(x.notaNumero||'informada')} color={Y}/>):<span style={{color:D2}}>-</span>}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setNotaFile(null);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||'',notaNumero:x.notaNumero||'',notaSerie:x.notaSerie||'',notaChave:x.notaChave||'',notaEmissao:x.notaEmissao||'',notaUrl:x.notaUrl||'',notaObs:x.notaObs||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {lista.length===0&&<Empty/>}
       </div>}
@@ -453,6 +591,17 @@ function Financeiro({clientes,user}){
     {modal==='new'&&<Modal title='Novo Lançamento' onClose={()=>setModal(null)} wide>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} disabled={!form.descricao||!form.valor||uploading} label={uploading?'Enviando...':'Salvar'}/></Modal>}
     {modal==='edit'&&sel&&<Modal title={'Editar: '+sel.descricao} onClose={()=>setModal(null)} wide>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.descricao||!form.valor||uploading} label={uploading?'Enviando...':'Salvar'}/></Modal>}
     {modal==='delete'&&sel&&<Modal title='Excluir Lançamento' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+sel.descricao+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
+    {modal==='bulk'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} lancamento(s) selecionado(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Tipo' value={bulk.tipo} onChange={v=>setBulk(p=>({...p,tipo:v}))} opts={[{v:'',l:'Manter tipo atual'},{v:'despesa',l:'Despesa'},{v:'venda',l:'Receita'}]}/>
+        <Inp label='Categoria' value={bulk.categoria} onChange={v=>setBulk(p=>({...p,categoria:v}))} opts={[{v:'',l:'Manter categoria atual'},...allCatOpts]}/>
+        <Inp label='Data' value={bulk.data} onChange={v=>setBulk(p=>({...p,data:v}))} type='date'/>
+        <Inp label='Cliente / Fornecedor' value={bulk.clienteId} onChange={v=>setBulk(p=>({...p,clienteId:v}))} opts={[{v:'',l:'Manter cliente atual'},...clientes.map(c=>({v:c.id,l:c.nome}))]}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.tipo&&!bulk.categoria&&!bulk.data&&bulk.clienteId===''}/>
+      </div>
+    </Modal>}
+    {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+selected.length+' lancamento(s) selecionado(s)?'} onCancel={()=>setModal(null)} onConfirm={excluirSelecionados}/></Modal>}
   </div>
 }
 
@@ -707,34 +856,99 @@ function Manejos({sedes,user}){
 
 // ── AGENDA ────────────────────────────────────────────────
 function Agenda({sedes}){
-  const {rows,loading,add,update}=useTable('agenda')
-  const blank={titulo:'',data:'',tipo:'Reproducao',descricao:'',sedeId:sedes[0]?.id||'',status:'pendente'}
-  const [modal,setModal]=useState(false),[form,setForm]=useState(blank)
+  const {rows,loading,add,update,remove,setRows}=useTable('agenda')
+  const makeBlank=()=>({titulo:'',data:'',tipo:'Reproducao',descricao:'',sedeId:sedes[0]?.id||'',status:'pendente'})
+  const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[form,setForm]=useState(makeBlank())
+  const [selected,setSelected]=useState([])
+  const [bulk,setBulk]=useState({tipo:'',status:'',sedeId:''})
   const fv=v=>setForm(p=>({...p,...v}))
-  async function salvar(){await add({id:genId(),...form});setModal(false);setForm(blank);}
+  function reset(){setForm(makeBlank());setSel(null);}
+  async function salvarNovo(){await add({id:genId(),...form});setModal(null);reset();}
+  async function salvarEdit(){if(!sel)return;await update(sel.id,form);setModal(null);reset();}
+  async function confirmarDel(){if(!sel)return;await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null);setSel(null);}
   async function toggle(a){await update(a.id,{status:a.status==='pendente'?'concluido':'pendente'});}
+  async function aplicarLote(){
+    const obj={}
+    if(bulk.tipo)obj.tipo=bulk.tipo
+    if(bulk.status)obj.status=bulk.status
+    if(bulk.sedeId)obj.sedeId=bulk.sedeId
+    if(Object.keys(obj).length===0||selected.length===0)return
+    const ids=[...selected]
+    const {data,error}=await sb.from('agenda').update(obj).in('id',ids).select()
+    if(error){alert('Erro ao atualizar tarefas: '+error.message);return}
+    setRows(p=>p.map(r=>ids.includes(r.id)?(data?.find(d=>d.id===r.id)||{...r,...obj}):r))
+    setSelected([]);setBulk({tipo:'',status:'',sedeId:''});setModal(null)
+  }
+  async function excluirSelecionados(){
+    const ids=[...selected]
+    if(ids.length===0)return
+    const {error}=await sb.from('agenda').delete().in('id',ids)
+    if(error){alert('Erro ao excluir tarefas: '+error.message);return}
+    setRows(p=>p.filter(r=>!ids.includes(r.id)))
+    setSelected([]);setModal(null)
+  }
+  function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+  function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
   const tColor={Reproducao:PU,Comercial:Y,Saude:R,Manejo:G,Outro:D1}
+  const tipoOpts=['Reproducao','Comercial','Saude','Manejo','Outro'].map(t=>({v:t,l:t}))
+  const statusOpts=[{v:'pendente',l:'Pendente'},{v:'concluido',l:'Concluido'}]
+  const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
   const pend=rows.filter(a=>a.status==='pendente').sort((a,b)=>a.data?.localeCompare(b.data))
   const done=rows.filter(a=>a.status==='concluido')
+  const visibleIds=rows.map(a=>a.id)
+  const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
+  const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
+  const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
+  function taskRow(a,doneRow=false){
+    const sede=sedes.find(s=>s.id===a.sedeId),tc=doneRow?G:(tColor[a.tipo]||D1),marcado=selected.includes(a.id)
+    return <div key={a.id} style={{background:CARD,border:'1px solid '+B,borderRadius:11,display:'flex',alignItems:'center',gap:14,padding:doneRow?'11px 18px':'13px 18px',opacity:doneRow?0.55:1}}>
+      <input type='checkbox' checked={marcado} onChange={()=>toggleOne(a.id)} style={checkStyle}/>
+      <div style={{width:3,height:doneRow?34:44,background:tc,borderRadius:2,flexShrink:0}}/>
+      <div style={{flex:1}}><div style={{color:doneRow?D2:TX,fontWeight:700,fontSize:14,textDecoration:doneRow?'line-through':'none'}}>{a.titulo}</div><div style={{color:D2,fontSize:12,marginTop:3}}>{a.descricao} - {fmtDate(a.data)} - {sede?.nome||''}</div></div>
+      <Badge label={doneRow?'Feito':a.tipo} color={tc}/>
+      <button onClick={()=>toggle(a)} style={{background:doneRow?'none':CARD2,border:doneRow?'none':'1px solid '+B,borderRadius:8,padding:doneRow?'6px 8px':'6px 13px',cursor:'pointer',color:D1,fontSize:12,fontWeight:700,whiteSpace:'nowrap'}}>{doneRow?'Reabrir':'Concluir'}</button>
+      <ActBtns onEdit={()=>{setSel(a);setForm({titulo:a.titulo||'',data:a.data||'',tipo:a.tipo||'Reproducao',descricao:a.descricao||'',sedeId:a.sedeId||sedes[0]?.id||'',status:a.status||'pendente'});setModal('edit')}} onDel={()=>{setSel(a);setModal('delete')}}/>
+    </div>
+  }
   return <div>
-    <SH title='📅 Agenda e Tarefas' action={<Btn onClick={()=>setModal(true)}>+ Nova Tarefa</Btn>}/>
+    <SH title='📅 Agenda e Tarefas' action={<Btn onClick={()=>{reset();setModal('new')}}>+ Nova Tarefa</Btn>}/>
+    <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+      <button onClick={toggleVisible} disabled={rows.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:rows.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{rows.length} tarefa(s)</div>
+      {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
+    </div>
+    {selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+      <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} tarefa(s) selecionada(s)</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Btn v='g' small onClick={()=>{setBulk({tipo:'',status:'',sedeId:''});setModal('bulk')}}>Aplicar em lote</Btn><Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn></div>
+    </div>}
     {loading?<Loading/>:<>
       {pend.length>0&&<div style={{marginBottom:10,color:D1,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6}}>Pendentes: {pend.length}</div>}
       <div style={{display:'flex',flexDirection:'column',gap:9,marginBottom:20}}>
-        {pend.map(a=>{const sede=sedes.find(s=>s.id===a.sedeId);const tc=tColor[a.tipo]||D1;return <div key={a.id} style={{background:CARD,border:'1px solid '+B,borderRadius:11,display:'flex',alignItems:'center',gap:14,padding:'13px 18px'}}><div style={{width:3,height:44,background:tc,borderRadius:2,flexShrink:0}}/><div style={{flex:1}}><div style={{color:TX,fontWeight:700,fontSize:14}}>{a.titulo}</div><div style={{color:D2,fontSize:12,marginTop:3}}>{a.descricao} - {fmtDate(a.data)} - {sede?.nome||''}</div></div><Badge label={a.tipo} color={tc}/><button onClick={()=>toggle(a)} style={{background:CARD2,border:'1px solid '+B,borderRadius:8,padding:'6px 13px',cursor:'pointer',color:D1,fontSize:12,fontWeight:700,whiteSpace:'nowrap'}}>Concluir</button></div>})}
+        {pend.map(a=>taskRow(a,false))}
         {pend.length===0&&<div style={{color:D2,textAlign:'center',padding:'30px 0',fontSize:13}}>Nenhuma tarefa pendente!</div>}
       </div>
-      {done.length>0&&<><div style={{marginBottom:10,color:D2,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6}}>Concluidas: {done.length}</div><div style={{display:'flex',flexDirection:'column',gap:7,opacity:0.5}}>{done.map(a=><div key={a.id} style={{background:CARD,border:'1px solid '+B,borderRadius:11,display:'flex',alignItems:'center',gap:14,padding:'11px 18px'}}><div style={{color:D2,fontSize:13,textDecoration:'line-through',flex:1}}>{a.titulo}</div><Badge label='Feito' color={G}/><button onClick={()=>toggle(a)} style={{background:'none',border:'none',color:D2,fontSize:11,cursor:'pointer'}}>Reabrir</button></div>)}</div></>}
+      {done.length>0&&<><div style={{marginBottom:10,color:D2,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6}}>Concluidas: {done.length}</div><div style={{display:'flex',flexDirection:'column',gap:7}}>{done.map(a=>taskRow(a,true))}</div></>}
     </>}
-    {modal&&<Modal title='Nova Tarefa' onClose={()=>setModal(false)}>
+    {(modal==='new'||modal==='edit')&&<Modal title={modal==='edit'?'Editar Tarefa':'Nova Tarefa'} onClose={()=>{setModal(null);reset();}}>
       <div style={{display:'flex',flexDirection:'column',gap:13}}>
         <Inp label='Titulo' value={form.titulo} onChange={v=>fv({titulo:v})}/>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Data' value={form.data} onChange={v=>fv({data:v})} type='date'/><Inp label='Tipo' value={form.tipo} onChange={v=>fv({tipo:v})} opts={['Reproducao','Comercial','Saude','Manejo','Outro'].map(t=>({v:t,l:t}))}/></div>
-        <Inp label='Sede' value={form.sedeId} onChange={v=>fv({sedeId:v})} opts={sedes.map(s=>({v:s.id,l:s.nome}))}/>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Data' value={form.data} onChange={v=>fv({data:v})} type='date'/><Inp label='Tipo' value={form.tipo} onChange={v=>fv({tipo:v})} opts={tipoOpts}/></div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Sede' value={form.sedeId} onChange={v=>fv({sedeId:v})} opts={sedeOpts}/><Inp label='Status' value={form.status} onChange={v=>fv({status:v})} opts={statusOpts}/></div>
         <Inp label='Descricao' value={form.descricao} onChange={v=>fv({descricao:v})}/>
-        <MFooter onCancel={()=>setModal(false)} onSave={salvar} disabled={!form.titulo}/>
+        <MFooter onCancel={()=>{setModal(null);reset();}} onSave={modal==='edit'?salvarEdit:salvarNovo} label={modal==='edit'?'Salvar Alteracoes':'Salvar Tarefa'} disabled={!form.titulo}/>
       </div>
     </Modal>}
+    {modal==='delete'&&sel&&<Modal title='Excluir Tarefa' onClose={()=>{setModal(null);setSel(null);}}><DelConfirm msg={'Excluir '+sel.titulo+'?'} onCancel={()=>{setModal(null);setSel(null);}} onConfirm={confirmarDel}/></Modal>}
+    {modal==='bulk'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} tarefa(s) selecionada(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Tipo' value={bulk.tipo} onChange={v=>setBulk(p=>({...p,tipo:v}))} opts={[{v:'',l:'Manter tipo atual'},...tipoOpts]}/>
+        <Inp label='Status' value={bulk.status} onChange={v=>setBulk(p=>({...p,status:v}))} opts={[{v:'',l:'Manter status atual'},...statusOpts]}/>
+        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={[{v:'',l:'Manter sede atual'},...sedeOpts]}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.tipo&&!bulk.status&&!bulk.sedeId}/>
+      </div>
+    </Modal>}
+    {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+selected.length+' tarefa(s) selecionada(s)?'} onCancel={()=>setModal(null)} onConfirm={excluirSelecionados}/></Modal>}
   </div>
 }
 
@@ -1357,15 +1571,20 @@ function Semen({sedes,user}){
 }
 // ── VENDAS ────────────────────────────────────────────────
 function Vendas({animais,sedes,user}){
-  const {rows,loading,add,update,remove}=useTable('vendas')
+  const {rows,loading,add,update,remove,setRows}=useTable('vendas')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null)
   const blank={animalId:'',data:'',valor:'',peso:'',compradorNome:'',compradorCpf:'',compradorTelefone:'',compradorCidade:'',compradorEstado:'PR',obs:''}
   const [form,setForm]=useState(blank)
+  const [selected,setSelected]=useState([])
+  const [bulk,setBulk]=useState({data:'',compradorCidade:'',compradorEstado:''})
   const fv=v=>setForm(p=>({...p,...v}))
   const canEdit=user.perfil!=='funcionario'
   const ativosStatus=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
   const animaisAtivos=animais.filter(a=>ativosStatus.includes(a.status))
   const totalRec=rows.reduce((s,v)=>s+Number(v.valor||0),0)
+  const visibleIds=rows.map(v=>v.id)
+  const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
+  const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
   async function salvarNovo(){
     const obj={id:genId(),...form,valor:Number(form.valor),peso:Number(form.peso)}
     await add(obj)
@@ -1375,7 +1594,30 @@ function Vendas({animais,sedes,user}){
     setModal(null);setForm(blank)
   }
   async function salvarEdit(){await update(sel.id,{...form,valor:Number(form.valor),peso:Number(form.peso)});setModal(null);}
-  async function confirmarDel(){await remove(sel.id);setModal(null);}
+  async function confirmarDel(){await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null);}
+  async function aplicarLote(){
+    const obj={}
+    if(bulk.data)obj.data=bulk.data
+    if(bulk.compradorCidade)obj.compradorCidade=bulk.compradorCidade
+    if(bulk.compradorEstado)obj.compradorEstado=bulk.compradorEstado
+    if(Object.keys(obj).length===0||selected.length===0)return
+    const ids=[...selected]
+    const {data,error}=await sb.from('vendas').update(obj).in('id',ids).select()
+    if(error){alert('Erro ao atualizar vendas: '+error.message);return}
+    setRows(p=>p.map(r=>ids.includes(r.id)?(data?.find(d=>d.id===r.id)||{...r,...obj}):r))
+    setSelected([]);setBulk({data:'',compradorCidade:'',compradorEstado:''});setModal(null)
+  }
+  async function excluirSelecionados(){
+    const ids=[...selected]
+    if(ids.length===0)return
+    const {error}=await sb.from('vendas').delete().in('id',ids)
+    if(error){alert('Erro ao excluir vendas: '+error.message);return}
+    setRows(p=>p.filter(r=>!ids.includes(r.id)))
+    setSelected([]);setModal(null)
+  }
+  function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+  function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
+  const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <div style={{background:BL+'15',border:'1px solid '+BL+'30',borderRadius:9,padding:'8px 13px',color:BL,fontSize:12,fontWeight:700}}>🐂 ANIMAL</div>
     <Inp label='Animal' value={form.animalId} onChange={v=>fv({animalId:v})} opts={[{v:'',l:'Selecione o animal...'},...animaisAtivos.map(a=>({v:a.id,l:a.brinco+(a.nome?' — '+a.nome:'')+' ('+a.categoria+', '+a.raca+')'}))]}/>
@@ -1404,11 +1646,20 @@ function Vendas({animais,sedes,user}){
       <StatCard icon='🐂' label='Animais Vendidos' value={[...new Set(rows.map(v=>v.animalId).filter(Boolean))].length} color={BL}/>
       <StatCard icon='⚖️' label='Média por Animal' value={rows.length?fmtR(totalRec/rows.length):fmtR(0)} color={PU}/>
     </div>
+    {canEdit&&<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+      <button onClick={toggleVisible} disabled={rows.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:rows.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{rows.length} venda(s)</div>
+      {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
+    </div>}
+    {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+      <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} venda(s) selecionada(s)</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Btn v='g' small onClick={()=>{setBulk({data:'',compradorCidade:'',compradorEstado:''});setModal('bulk')}}>Aplicar em lote</Btn><Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn></div>
+    </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
-          <thead><tr><Th>Animal</Th><Th>Data</Th><Th>Valor</Th><Th>Peso</Th><Th>Comprador</Th><Th>CPF/CNPJ</Th><Th>Telefone</Th><Th>Cidade/UF</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
-          <tbody>{rows.map(v=>{const animal=animais.find(a=>a.id===v.animalId);return <TR key={v.id}><Td s={{fontWeight:700,color:Y}}>{animal?animal.brinco+(animal.nome?' — '+animal.nome:''):'(removido)'}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(v.data)}</Td><Td s={{fontWeight:800,color:G}}>{fmtR(v.valor)}</Td><Td s={{color:D1}}>{v.peso?v.peso+' kg':'-'}</Td><Td s={{fontWeight:600}}>{v.compradorNome||'-'}</Td><Td s={{color:D1,fontSize:12}}>{v.compradorCpf||'-'}</Td><Td s={{color:D1,fontSize:12}}>{v.compradorTelefone||'-'}</Td><Td s={{color:D1,fontSize:12}}>{v.compradorCidade?v.compradorCidade+'/'+v.compradorEstado:'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(v);setForm({animalId:v.animalId||'',data:v.data||'',valor:String(v.valor||''),peso:String(v.peso||''),compradorNome:v.compradorNome||'',compradorCpf:v.compradorCpf||'',compradorTelefone:v.compradorTelefone||'',compradorCidade:v.compradorCidade||'',compradorEstado:v.compradorEstado||'PR',obs:v.obs||''});setModal('edit');}} onDel={()=>{setSel(v);setModal('delete');}}/></Td>}</TR>})}</tbody>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Animal</Th><Th>Data</Th><Th>Valor</Th><Th>Peso</Th><Th>Comprador</Th><Th>CPF/CNPJ</Th><Th>Telefone</Th><Th>Cidade/UF</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
+          <tbody>{rows.map(v=>{const animal=animais.find(a=>a.id===v.animalId);const marcado=selected.includes(v.id);return <TR key={v.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(v.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:700,color:Y}}>{animal?animal.brinco+(animal.nome?' — '+animal.nome:''):'(removido)'}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(v.data)}</Td><Td s={{fontWeight:800,color:G}}>{fmtR(v.valor)}</Td><Td s={{color:D1}}>{v.peso?v.peso+' kg':'-'}</Td><Td s={{fontWeight:600}}>{v.compradorNome||'-'}</Td><Td s={{color:D1,fontSize:12}}>{v.compradorCpf||'-'}</Td><Td s={{color:D1,fontSize:12}}>{v.compradorTelefone||'-'}</Td><Td s={{color:D1,fontSize:12}}>{v.compradorCidade?v.compradorCidade+'/'+v.compradorEstado:'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(v);setForm({animalId:v.animalId||'',data:v.data||'',valor:String(v.valor||''),peso:String(v.peso||''),compradorNome:v.compradorNome||'',compradorCpf:v.compradorCpf||'',compradorTelefone:v.compradorTelefone||'',compradorCidade:v.compradorCidade||'',compradorEstado:v.compradorEstado||'PR',obs:v.obs||''});setModal('edit');}} onDel={()=>{setSel(v);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {rows.length===0&&<Empty msg='Nenhuma venda registrada.'/>}
       </div>}
@@ -1420,6 +1671,16 @@ function Vendas({animais,sedes,user}){
     </Modal>}
     {modal==='edit'&&sel&&<Modal title='Editar Venda' onClose={()=>setModal(null)} wide>{formBody}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.animalId||!form.valor||!form.data||!form.compradorNome}/></Modal>}
     {modal==='delete'&&sel&&<Modal title='Excluir Venda' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir venda de '+fmtR(sel.valor)+' para '+sel.compradorNome+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
+    {modal==='bulk'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} venda(s) selecionada(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Data da Venda' value={bulk.data} onChange={v=>setBulk(p=>({...p,data:v}))} type='date'/>
+        <Inp label='Cidade do Comprador' value={bulk.compradorCidade} onChange={v=>setBulk(p=>({...p,compradorCidade:v}))} ph='Deixe vazio para manter'/>
+        <Inp label='Estado do Comprador' value={bulk.compradorEstado} onChange={v=>setBulk(p=>({...p,compradorEstado:v}))} ph='Ex: PR'/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.data&&!bulk.compradorCidade&&!bulk.compradorEstado}/>
+      </div>
+    </Modal>}
+    {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+selected.length+' venda(s) selecionada(s)?'} onCancel={()=>setModal(null)} onConfirm={excluirSelecionados}/></Modal>}
   </div>
 }
 
