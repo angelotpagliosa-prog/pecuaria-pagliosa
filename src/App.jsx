@@ -458,32 +458,104 @@ function Financeiro({clientes,user}){
 
 // ── REPRODUCAO ────────────────────────────────────────────
 function Reproducao({animais,sedes,user}){
-  const {rows,loading,add}=useTable('reproducao')
-  const blank={animalId:animais[0]?.id||'',tipo:'IATF',data:'',resultado:'Pendente',obs:'',sedeId:sedes[0]?.id||''}
-  const [modal,setModal]=useState(false),[form,setForm]=useState(blank)
+  const {rows,loading,add,update,remove,setRows}=useTable('reproducao')
+  const makeBlank=()=>({animalId:animais[0]?.id||'',tipo:'IATF',data:'',resultado:'Pendente',obs:'',sedeId:sedes[0]?.id||''})
+  const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[form,setForm]=useState(makeBlank())
+  const [selected,setSelected]=useState([])
+  const [bulk,setBulk]=useState({tipo:'',resultado:'',sedeId:''})
   const fv=v=>setForm(p=>({...p,...v}))
   const tColor={IATF:PU,DG:BL,Parto:G,'Monta Natural':Y}
   const rColor={Prenha:G,Vazia:R,Pendente:Y,Normal:BL}
-  async function salvar(){await add({id:genId(),...form});setModal(false);setForm(blank);}
+  const canEdit=user.perfil!=='funcionario'
+  const visibleIds=rows.map(r=>r.id)
+  const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
+  const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
+  function reset(){setForm(makeBlank());setSel(null);}
+  function loadF(r){setForm({animalId:r.animalId||animais[0]?.id||'',tipo:r.tipo||'IATF',data:r.data||'',resultado:r.resultado||'Pendente',obs:r.obs||'',sedeId:r.sedeId||sedes[0]?.id||''});}
+  async function salvarNovo(){await add({id:genId(),...form});setModal(null);reset();}
+  async function salvarEdit(){if(!sel)return;await update(sel.id,form);setModal(null);reset();}
+  async function confirmarDel(){if(!sel)return;await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null);setSel(null);}
+  async function aplicarLote(){
+    const obj={}
+    if(bulk.tipo)obj.tipo=bulk.tipo
+    if(bulk.resultado)obj.resultado=bulk.resultado
+    if(bulk.sedeId)obj.sedeId=bulk.sedeId
+    if(Object.keys(obj).length===0||selected.length===0)return
+    const ids=[...selected]
+    const {data,error}=await sb.from('reproducao').update(obj).in('id',ids).select()
+    if(error){alert('Erro ao atualizar registros: '+error.message);return}
+    setRows(p=>p.map(r=>{
+      const novo=data?.find(d=>d.id===r.id)
+      return ids.includes(r.id)?(novo||{...r,...obj}):r
+    }))
+    setSelected([])
+    setBulk({tipo:'',resultado:'',sedeId:''})
+    setModal(null)
+  }
+  async function excluirSelecionados(){
+    const ids=[...selected]
+    if(ids.length===0)return
+    const {error}=await sb.from('reproducao').delete().in('id',ids)
+    if(error){alert('Erro ao excluir registros: '+error.message);return}
+    setRows(p=>p.filter(r=>!ids.includes(r.id)))
+    setSelected([])
+    setModal(null)
+  }
+  function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
+  function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
+  const tipoOpts=['IATF','DG','Parto','Monta Natural'].map(t=>({v:t,l:t}))
+  const resultadoOpts=['Pendente','Prenha','Vazia','Normal'].map(t=>({v:t,l:t}))
+  const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
+  const bulkTipoOpts=[{v:'',l:'Manter tipo atual'},...tipoOpts]
+  const bulkResultadoOpts=[{v:'',l:'Manter resultado atual'},...resultadoOpts]
+  const bulkSedeOpts=[{v:'',l:'Manter sede atual'},...sedeOpts]
+  const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   return <div>
-    <SH title='🔬 Reproducao' action={user.perfil!=='funcionario'&&<Btn onClick={()=>setModal(true)}>+ Novo Registro</Btn>}/>
+    <SH title='🔬 Reproducao' action={canEdit&&<Btn onClick={()=>{reset();setModal('new')}}>+ Novo Registro</Btn>}/>
+    {canEdit&&<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+      <button onClick={toggleVisible} disabled={rows.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:rows.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{rows.length} registro(s)</div>
+      {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
+    </div>}
+    {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+      <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} registro(s) selecionado(s)</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Btn v='g' small onClick={()=>{setBulk({tipo:'',resultado:'',sedeId:''});setModal('bulk')}}>Aplicar em lote</Btn>
+        <Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn>
+      </div>
+    </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:650}}>
-          <thead><tr><Th>Animal</Th><Th>Tipo</Th><Th>Data</Th><Th>Resultado</Th><Th>Sede</Th><Th>Obs.</Th></tr></thead>
-          <tbody>{rows.map(r=>{const a=animais.find(x=>x.id===r.animalId);const sede=sedes.find(s=>s.id===r.sedeId);return <TR key={r.id}><Td s={{fontWeight:700,color:Y}}>{a?a.brinco+' - '+a.nome:'-'}</Td><Td><Badge label={r.tipo} color={tColor[r.tipo]||D1}/></Td><Td s={{color:D1}}>{fmtDate(r.data)}</Td><Td><Badge label={r.resultado} color={rColor[r.resultado]||D1} dot/></Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td s={{color:D1}}>{r.obs||'-'}</Td></TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:780}}>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Animal</Th><Th>Tipo</Th><Th>Data</Th><Th>Resultado</Th><Th>Sede</Th><Th>Obs.</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
+          <tbody>{rows.map(r=>{const a=animais.find(x=>x.id===r.animalId);const sede=sedes.find(s=>s.id===r.sedeId);const marcado=selected.includes(r.id);return <TR key={r.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(r.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:700,color:Y}}>{a?a.brinco+' - '+a.nome:'-'}</Td><Td><Badge label={r.tipo} color={tColor[r.tipo]||D1}/></Td><Td s={{color:D1}}>{fmtDate(r.data)}</Td><Td><Badge label={r.resultado} color={rColor[r.resultado]||D1} dot/></Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td s={{color:D1}}>{r.obs||'-'}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(r);loadF(r);setModal('edit');}} onDel={()=>{setSel(r);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {rows.length===0&&<Empty/>}
       </div>}
     </div>
-    {modal&&<Modal title='Novo Registro Reprodutivo' onClose={()=>setModal(false)}>
+    {(modal==='new'||modal==='edit')&&<Modal title={modal==='edit'?'Editar Registro Reprodutivo':'Novo Registro Reprodutivo'} onClose={()=>{setModal(null);reset();}}>
       <div style={{display:'flex',flexDirection:'column',gap:13}}>
         <Inp label='Animal' value={form.animalId} onChange={v=>fv({animalId:v})} opts={animais.map(a=>({v:a.id,l:a.brinco+' - '+a.nome}))}/>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Tipo' value={form.tipo} onChange={v=>fv({tipo:v})} opts={['IATF','DG','Parto','Monta Natural'].map(t=>({v:t,l:t}))}/><Inp label='Data' value={form.data} onChange={v=>fv({data:v})} type='date'/></div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Resultado' value={form.resultado} onChange={v=>fv({resultado:v})} opts={['Pendente','Prenha','Vazia','Normal'].map(t=>({v:t,l:t}))}/><Inp label='Sede' value={form.sedeId} onChange={v=>fv({sedeId:v})} opts={sedes.map(s=>({v:s.id,l:s.nome}))}/></div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Tipo' value={form.tipo} onChange={v=>fv({tipo:v})} opts={tipoOpts}/><Inp label='Data' value={form.data} onChange={v=>fv({data:v})} type='date'/></div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Resultado' value={form.resultado} onChange={v=>fv({resultado:v})} opts={resultadoOpts}/><Inp label='Sede' value={form.sedeId} onChange={v=>fv({sedeId:v})} opts={sedeOpts}/></div>
         <Inp label='Observacoes' value={form.obs} onChange={v=>fv({obs:v})}/>
-        <MFooter onCancel={()=>setModal(false)} onSave={salvar}/>
+        <MFooter onCancel={()=>{setModal(null);reset();}} onSave={modal==='edit'?salvarEdit:salvarNovo} label={modal==='edit'?'Salvar Alteracoes':'Salvar Registro'} disabled={!form.animalId}/>
       </div>
+    </Modal>}
+    {modal==='delete'&&sel&&<Modal title='Excluir Registro' onClose={()=>{setModal(null);setSel(null);}}>
+      <DelConfirm msg={'Excluir este registro reprodutivo?'} onCancel={()=>{setModal(null);setSel(null);}} onConfirm={confirmarDel}/>
+    </Modal>}
+    {modal==='bulk'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} registro(s) selecionado(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Tipo' value={bulk.tipo} onChange={v=>setBulk(p=>({...p,tipo:v}))} opts={bulkTipoOpts}/>
+        <Inp label='Resultado' value={bulk.resultado} onChange={v=>setBulk(p=>({...p,resultado:v}))} opts={bulkResultadoOpts}/>
+        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={bulkSedeOpts}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.tipo&&!bulk.resultado&&!bulk.sedeId}/>
+      </div>
+    </Modal>}
+    {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}>
+      <DelConfirm msg={'Excluir '+selected.length+' registro(s) selecionado(s)? Essa acao nao pode ser desfeita.'} onCancel={()=>setModal(null)} onConfirm={excluirSelecionados}/>
     </Modal>}
   </div>
 }
@@ -923,13 +995,15 @@ function ExcelPanel({sedes}){
 
 // ── SEMEN ─────────────────────────────────────────────────
 function Semen({sedes,user}){
-  const {rows:botijoes,loading:loadBot,add:addBot,update:updateBot,remove:removeBot}=useTable('semen_botijoes')
-  const {rows:palhetas,loading:loadPal,add:addPal,update:updatePal,remove:removePal}=useTable('semen_palhetas')
-  const {rows:saidas,loading:loadSai,add:addSai}=useTable('semen_saidas')
+  const {rows:botijoes,loading:loadBot,add:addBot,update:updateBot,remove:removeBot,setRows:setBotijoes}=useTable('semen_botijoes')
+  const {rows:palhetas,loading:loadPal,add:addPal,update:updatePal,remove:removePal,setRows:setPalhetas}=useTable('semen_palhetas')
+  const {rows:saidas,loading:loadSai,add:addSai,update:updateSai,remove:removeSai,setRows:setSaidas}=useTable('semen_saidas')
   const [tab,setTab]=useState('botijoes')
   const [modal,setModal]=useState(null)
   const [sel,setSel]=useState(null)
   const [modalSaida,setModalSaida]=useState(null)
+  const [selected,setSelected]=useState({botijoes:[],palhetas:[],saidas:[]})
+  const [bulk,setBulk]=useState({sedeId:'',botijoId:'',raca:'',motivo:'',destino:''})
 
   // forms
   const blankBot={nome:'',sedeId:sedes[0]?.id||'',obs:''}
@@ -943,36 +1017,140 @@ function Semen({sedes,user}){
   const fsv=v=>setFormSaida(p=>({...p,...v}))
 
   const canEdit=user.perfil!=='funcionario'
+  const currentRows=tab==='botijoes'?botijoes:tab==='palhetas'?palhetas:saidas
+  const currentSelected=selected[tab]||[]
+  const currentIds=currentRows.map(x=>x.id)
+  const selectedVisible=currentIds.filter(id=>currentSelected.includes(id)).length
+  const allVisibleSelected=currentIds.length>0&&selectedVisible===currentIds.length
 
   // totais
   const totalDoses=palhetas.reduce((s,p)=>s+Number(p.dose_atual||0),0)
   const totalTouros=[...new Set(palhetas.map(p=>p.touro).filter(Boolean))].length
+  function clearSelected(t=tab){setSelected(p=>({...p,[t]:[]}));}
+  function toggleOne(id){setSelected(p=>{const list=p[tab]||[];return {...p,[tab]:list.includes(id)?list.filter(x=>x!==id):[...list,id]};});}
+  function toggleVisible(){setSelected(p=>({...p,[tab]:allVisibleSelected?(p[tab]||[]).filter(id=>!currentIds.includes(id)):[...new Set([...(p[tab]||[]),...currentIds])]}));}
+  function selectBar(label){
+    return canEdit&&<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+      <button onClick={toggleVisible} disabled={currentRows.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:currentRows.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{currentRows.length} {label}</div>
+      {currentSelected.length>0&&<button onClick={()=>clearSelected()} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{currentSelected.length} selecionado(s) - limpar</button>}
+    </div>
+  }
+  function actionBar(label){
+    return canEdit&&currentSelected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+      <div style={{color:Y,fontWeight:800,fontSize:13}}>{currentSelected.length} {label} selecionado(s)</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <Btn v='g' small onClick={()=>{setBulk({sedeId:'',botijoId:'',raca:'',motivo:'',destino:''});setModal('bulk_'+tab)}}>Aplicar em lote</Btn>
+        <Btn v='r' small onClick={()=>setModal('bulk_delete_'+tab)}>Excluir selecionados</Btn>
+      </div>
+    </div>
+  }
 
   async function salvarBot(){
     if(sel) await updateBot(sel.id,formBot)
     else await addBot({id:genId(),...formBot})
     setModal(null);setFormBot(blankBot);setSel(null)
   }
-  async function excluirBot(){await removeBot(sel.id);setModal(null);setSel(null);}
+  async function excluirBot(){await removeBot(sel.id);setSelected(p=>({...p,botijoes:(p.botijoes||[]).filter(id=>id!==sel.id)}));setModal(null);setSel(null);}
 
   async function salvarPal(){
     if(sel) await updatePal(sel.id,{...formPal,dose_total:Number(formPal.dose_total),dose_atual:Number(formPal.dose_atual)})
     else await addPal({id:genId(),...formPal,dose_total:Number(formPal.dose_total),dose_atual:Number(formPal.dose_atual)})
     setModal(null);setFormPal(blankPal);setSel(null)
   }
-  async function excluirPal(){await removePal(sel.id);setModal(null);setSel(null);}
+  async function excluirPal(){await removePal(sel.id);setSelected(p=>({...p,palhetas:(p.palhetas||[]).filter(id=>id!==sel.id)}));setModal(null);setSel(null);}
 
   async function salvarSaida(){
     const qtd=Number(formSaida.quantidade)||0
     const pal=palhetas.find(p=>p.id===formSaida.palhetaId)
-    if(!pal||qtd<=0||qtd>pal.dose_atual) return
-    await addSai({id:genId(),...formSaida,quantidade:qtd,touro:pal.touro,raca:pal.raca,caneca:pal.caneca,botijoId:pal.botijoId})
-    await updatePal(pal.id,{dose_atual:pal.dose_atual-qtd})
-    setModalSaida(null);setFormSaida(blankSaida)
+    const old=modalSaida==='edit'?sel:null
+    const disponivel=pal?Number(pal.dose_atual||0)+(old?.palhetaId===pal.id?Number(old.quantidade||0):0):0
+    if(!pal||qtd<=0||qtd>disponivel) return
+    if(old?.palhetaId&&old.palhetaId!==pal.id){
+      const oldPal=palhetas.find(p=>p.id===old.palhetaId)
+      if(oldPal)await updatePal(oldPal.id,{dose_atual:Number(oldPal.dose_atual||0)+Number(old.quantidade||0)})
+    }
+    const payload={...formSaida,quantidade:qtd,touro:pal.touro,raca:pal.raca,caneca:pal.caneca,botijoId:pal.botijoId}
+    if(old)await updateSai(old.id,payload)
+    else await addSai({id:genId(),...payload})
+    await updatePal(pal.id,{dose_atual:disponivel-qtd})
+    setModalSaida(null);setFormSaida(blankSaida);setSel(null)
+  }
+  function loadSaida(s){
+    setFormSaida({palhetaId:s.palhetaId||'',quantidade:String(s.quantidade||''),destino:s.destino||'',motivo:s.motivo||'IATF',data:s.data||'',obs:s.obs||''})
+  }
+  async function excluirSaida(){
+    if(!sel)return
+    const pal=palhetas.find(p=>p.id===sel.palhetaId)
+    await removeSai(sel.id)
+    if(pal)await updatePal(pal.id,{dose_atual:Number(pal.dose_atual||0)+Number(sel.quantidade||0)})
+    setSelected(p=>({...p,saidas:(p.saidas||[]).filter(id=>id!==sel.id)}))
+    setModal(null);setSel(null)
+  }
+  async function aplicarLoteSemen(){
+    const ids=[...currentSelected]
+    if(ids.length===0)return
+    if(tab==='botijoes'){
+      const obj={}
+      if(bulk.sedeId)obj.sedeId=bulk.sedeId
+      if(!Object.keys(obj).length)return
+      const {data,error}=await sb.from('semen_botijoes').update(obj).in('id',ids).select()
+      if(error){alert('Erro ao atualizar botijoes: '+error.message);return}
+      setBotijoes(p=>p.map(r=>ids.includes(r.id)?(data?.find(d=>d.id===r.id)||{...r,...obj}):r))
+    } else if(tab==='palhetas'){
+      const obj={}
+      if(bulk.botijoId)obj.botijoId=bulk.botijoId
+      if(bulk.raca)obj.raca=bulk.raca
+      if(!Object.keys(obj).length)return
+      const {data,error}=await sb.from('semen_palhetas').update(obj).in('id',ids).select()
+      if(error){alert('Erro ao atualizar palhetas: '+error.message);return}
+      setPalhetas(p=>p.map(r=>ids.includes(r.id)?(data?.find(d=>d.id===r.id)||{...r,...obj}):r))
+    } else {
+      const obj={}
+      if(bulk.motivo)obj.motivo=bulk.motivo
+      if(bulk.destino)obj.destino=bulk.destino
+      if(!Object.keys(obj).length)return
+      const {data,error}=await sb.from('semen_saidas').update(obj).in('id',ids).select()
+      if(error){alert('Erro ao atualizar saidas: '+error.message);return}
+      setSaidas(p=>p.map(r=>ids.includes(r.id)?(data?.find(d=>d.id===r.id)||{...r,...obj}):r))
+    }
+    clearSelected(tab)
+    setBulk({sedeId:'',botijoId:'',raca:'',motivo:'',destino:''})
+    setModal(null)
+  }
+  async function excluirSelecionadosSemen(){
+    const ids=[...currentSelected]
+    if(ids.length===0)return
+    if(tab==='botijoes'){
+      const {error}=await sb.from('semen_botijoes').delete().in('id',ids)
+      if(error){alert('Erro ao excluir botijoes: '+error.message);return}
+      setBotijoes(p=>p.filter(r=>!ids.includes(r.id)))
+    } else if(tab==='palhetas'){
+      const {error}=await sb.from('semen_palhetas').delete().in('id',ids)
+      if(error){alert('Erro ao excluir palhetas: '+error.message);return}
+      setPalhetas(p=>p.filter(r=>!ids.includes(r.id)))
+    } else {
+      const regs=saidas.filter(s=>ids.includes(s.id))
+      const {error}=await sb.from('semen_saidas').delete().in('id',ids)
+      if(error){alert('Erro ao excluir saidas: '+error.message);return}
+      const porPal={}
+      regs.forEach(s=>{if(s.palhetaId)porPal[s.palhetaId]=(porPal[s.palhetaId]||0)+Number(s.quantidade||0)})
+      for(const [palId,qtd] of Object.entries(porPal)){
+        const pal=palhetas.find(p=>p.id===palId)
+        if(pal)await updatePal(pal.id,{dose_atual:Number(pal.dose_atual||0)+qtd})
+      }
+      setSaidas(p=>p.filter(r=>!ids.includes(r.id)))
+    }
+    clearSelected(tab)
+    setModal(null)
   }
 
   const palSel=palhetas.find(p=>p.id===formSaida.palhetaId)
+  const palDisponivel=palSel?Number(palSel.dose_atual||0)+(modalSaida==='edit'&&sel?.palhetaId===palSel.id?Number(sel.quantidade||0):0):0
   const motivoOpts=['IATF','Monta Natural','Doação','Descarte','Outro'].map(m=>({v:m,l:m}))
+  const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
+  const botijoOpts=botijoes.map(b=>({v:b.id,l:b.nome}))
+  const racaOpts=['Charolês','Caracu','Tabapuã','Nelore','Braford','Brangus','Angus','Hereford','Simmental','Outro'].map(r=>({v:r,l:r}))
   const card={background:CARD,border:'1px solid '+B,borderRadius:12,padding:20}
   const tabs=[['botijoes','🧊 Botijões'],['palhetas','🧬 Palhetas'],['saidas','📤 Saídas']]
 
@@ -980,7 +1158,7 @@ function Semen({sedes,user}){
     <SH title='🧊 Controle de Sêmen' action={canEdit&&<div style={{display:'flex',gap:8}}>
       {tab==='botijoes'&&<Btn onClick={()=>{setFormBot(blankBot);setSel(null);setModal('bot')}}>+ Novo Botijão</Btn>}
       {tab==='palhetas'&&<Btn onClick={()=>{setFormPal(blankPal);setSel(null);setModal('pal')}}>+ Nova Palheta</Btn>}
-      {tab==='saidas'&&<Btn onClick={()=>{setFormSaida(blankSaida);setModalSaida(true)}}>+ Registrar Saída</Btn>}
+      {tab==='saidas'&&<Btn onClick={()=>{setFormSaida(blankSaida);setSel(null);setModalSaida('new')}}>+ Registrar Saída</Btn>}
     </div>}/>
 
     {/* Cards resumo */}
@@ -995,6 +1173,8 @@ function Semen({sedes,user}){
     <div style={{display:'flex',gap:6,marginBottom:18,flexWrap:'wrap'}}>
       {tabs.map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'7px 18px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:13,cursor:'pointer'}}>{t[1]}</button>)}
     </div>
+    {selectBar(tab==='botijoes'?'botijão(ões)':tab==='palhetas'?'palheta(s)':'saída(s)')}
+    {actionBar(tab==='botijoes'?'botijão(ões)':tab==='palhetas'?'palheta(s)':'saída(s)')}
 
     {/* BOTIJÕES */}
     {tab==='botijoes'&&(loadBot?<Loading/>:
@@ -1004,13 +1184,14 @@ function Semen({sedes,user}){
           const doses=pals.reduce((s,p)=>s+Number(p.dose_atual||0),0)
           const touros=[...new Set(pals.map(p=>p.touro).filter(Boolean))]
           const sede=sedes.find(s=>s.id===b.sedeId)
+          const marcado=currentSelected.includes(b.id)
           return <div key={b.id} style={{background:CARD,border:'1px solid '+B,borderRadius:14,padding:20,borderTop:'3px solid '+BL}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
                 <div style={{fontSize:32}}>🧊</div>
                 <div><div style={{color:TX,fontWeight:800,fontSize:16}}>{b.nome}</div><div style={{color:D2,fontSize:12,marginTop:2}}>{sede?.nome||'-'}</div></div>
               </div>
-              {canEdit&&<ActBtns onEdit={()=>{setSel(b);setFormBot({nome:b.nome,sedeId:b.sedeId,obs:b.obs||''});setModal('bot');}} onDel={()=>{setSel(b);setModal('del_bot');}}/>}
+              {canEdit&&<div style={{display:'flex',alignItems:'center',gap:8}}><input type='checkbox' checked={marcado} onChange={()=>toggleOne(b.id)} style={{width:16,height:16,accentColor:Y,cursor:'pointer'}}/><ActBtns onEdit={()=>{setSel(b);setFormBot({nome:b.nome,sedeId:b.sedeId,obs:b.obs||''});setModal('bot');}} onDel={()=>{setSel(b);setModal('del_bot');}}/></div>}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:9,marginBottom:12}}>
               <div style={{background:CARD2,borderRadius:8,padding:'10px 12px',border:'1px solid '+B}}><div style={{color:G,fontWeight:800,fontSize:20}}>{doses}</div><div style={{color:D2,fontSize:11,marginTop:2}}>Doses disponíveis</div></div>
@@ -1029,12 +1210,14 @@ function Semen({sedes,user}){
       <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
         <div style={{overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',minWidth:750}}>
-            <thead><tr><Th>Touro</Th><Th>Raça</Th><Th>Botijão</Th><Th>Caneca</Th><Th>Doses Total</Th><Th>Doses Atual</Th><Th>Situação</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
+            <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={{width:16,height:16,accentColor:Y,cursor:'pointer'}}/></Th>}<Th>Touro</Th><Th>Raça</Th><Th>Botijão</Th><Th>Caneca</Th><Th>Doses Total</Th><Th>Doses Atual</Th><Th>Situação</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
             <tbody>{palhetas.map(p=>{
               const bot=botijoes.find(b=>b.id===p.botijoId)
               const pct=p.dose_total>0?(p.dose_atual/p.dose_total)*100:0
               const cor=pct>50?G:pct>20?Y:R
+              const marcado=currentSelected.includes(p.id)
               return <TR key={p.id}>
+                {canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(p.id)} style={{width:16,height:16,accentColor:Y,cursor:'pointer'}}/></Td>}
                 <Td s={{fontWeight:700,color:TX}}>{p.touro||'-'}</Td>
                 <Td>{p.raca||'-'}</Td>
                 <Td s={{color:BL,fontWeight:600}}>{bot?.nome||'-'}</Td>
@@ -1063,10 +1246,12 @@ function Semen({sedes,user}){
       <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
         <div style={{overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',minWidth:750}}>
-            <thead><tr><Th>Data</Th><Th>Touro</Th><Th>Raça</Th><Th>Botijão</Th><Th>Caneca</Th><Th>Doses</Th><Th>Motivo</Th><Th>Destino</Th><Th>Obs.</Th></tr></thead>
+            <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={{width:16,height:16,accentColor:Y,cursor:'pointer'}}/></Th>}<Th>Data</Th><Th>Touro</Th><Th>Raça</Th><Th>Botijão</Th><Th>Caneca</Th><Th>Doses</Th><Th>Motivo</Th><Th>Destino</Th><Th>Obs.</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
             <tbody>{[...saidas].reverse().map(s=>{
               const bot=botijoes.find(b=>b.id===s.botijoId)
+              const marcado=currentSelected.includes(s.id)
               return <TR key={s.id}>
+                {canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(s.id)} style={{width:16,height:16,accentColor:Y,cursor:'pointer'}}/></Td>}
                 <Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(s.data)}</Td>
                 <Td s={{fontWeight:700,color:Y}}>{s.touro||'-'}</Td>
                 <Td>{s.raca||'-'}</Td>
@@ -1076,6 +1261,7 @@ function Semen({sedes,user}){
                 <Td><Badge label={s.motivo||'-'} color={G}/></Td>
                 <Td s={{color:D1}}>{s.destino||'-'}</Td>
                 <Td s={{color:D2,fontSize:12}}>{s.obs||'-'}</Td>
+                {canEdit&&<Td><ActBtns onEdit={()=>{setSel(s);loadSaida(s);setModalSaida('edit');}} onDel={()=>{setSel(s);setModal('del_saida');}}/></Td>}
               </TR>
             })}</tbody>
           </table>
@@ -1115,13 +1301,13 @@ function Semen({sedes,user}){
     </Modal>}
 
     {/* MODAL SAÍDA */}
-    {modalSaida&&<Modal title='Registrar Saída de Doses' onClose={()=>setModalSaida(null)}>
+    {modalSaida&&<Modal title={modalSaida==='edit'?'Editar Saída de Doses':'Registrar Saída de Doses'} onClose={()=>{setModalSaida(null);setFormSaida(blankSaida);setSel(null);}}>
       <div style={{display:'flex',flexDirection:'column',gap:13}}>
-        <Inp label='Palheta (Touro)' value={formSaida.palhetaId} onChange={v=>fsv({palhetaId:v})} opts={[{v:'',l:'Selecione...'},...palhetas.filter(p=>p.dose_atual>0).map(p=>{const bot=botijoes.find(b=>b.id===p.botijoId);return {v:p.id,l:(p.touro||'Sem nome')+' — '+bot?.nome+' / Caneca '+p.caneca+' ('+p.dose_atual+' doses)'}})]}/>
+        <Inp label='Palheta (Touro)' value={formSaida.palhetaId} onChange={v=>fsv({palhetaId:v})} opts={[{v:'',l:'Selecione...'},...palhetas.filter(p=>p.dose_atual>0||p.id===formSaida.palhetaId).map(p=>{const bot=botijoes.find(b=>b.id===p.botijoId);const disp=Number(p.dose_atual||0)+(modalSaida==='edit'&&sel?.palhetaId===p.id?Number(sel.quantidade||0):0);return {v:p.id,l:(p.touro||'Sem nome')+' — '+bot?.nome+' / Caneca '+p.caneca+' ('+disp+' doses)'}})]}/>
         {palSel&&<div style={{background:CARD2,border:'1px solid '+B,borderRadius:10,padding:14,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
           <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Touro</div><div style={{color:Y,fontWeight:700,fontSize:14,marginTop:3}}>{palSel.touro}</div></div>
           <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Caneca</div><div style={{color:PU,fontWeight:700,fontSize:14,marginTop:3}}>{palSel.caneca}</div></div>
-          <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Disponível</div><div style={{color:G,fontWeight:700,fontSize:14,marginTop:3}}>{palSel.dose_atual} doses</div></div>
+          <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Disponível</div><div style={{color:G,fontWeight:700,fontSize:14,marginTop:3}}>{palDisponivel} doses</div></div>
         </div>}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <Inp label='Quantidade de Doses' value={formSaida.quantidade} onChange={v=>fsv({quantidade:v})} type='number' ph='Ex: 10'/>
@@ -1132,14 +1318,41 @@ function Semen({sedes,user}){
           <Inp label='Destino / Lote' value={formSaida.destino} onChange={v=>fsv({destino:v})} ph='Ex: Lote A, Vaca 2526'/>
         </div>
         <Inp label='Observações' value={formSaida.obs} onChange={v=>fsv({obs:v})} ph='Ex: Protocolo IATF dia 1'/>
-        {palSel&&Number(formSaida.quantidade)>palSel.dose_atual&&<div style={{background:R+'18',border:'1px solid '+R+'40',borderRadius:8,padding:'10px 14px',color:R,fontSize:13,fontWeight:600}}>⚠️ Quantidade maior que o estoque disponível ({palSel.dose_atual} doses)</div>}
-        <MFooter onCancel={()=>setModalSaida(null)} onSave={salvarSaida} label='Confirmar Saída' disabled={!formSaida.palhetaId||!formSaida.quantidade||!formSaida.data||Number(formSaida.quantidade)>Number(palSel?.dose_atual||0)}/>
+        {palSel&&Number(formSaida.quantidade)>palDisponivel&&<div style={{background:R+'18',border:'1px solid '+R+'40',borderRadius:8,padding:'10px 14px',color:R,fontSize:13,fontWeight:600}}>⚠️ Quantidade maior que o estoque disponível ({palDisponivel} doses)</div>}
+        <MFooter onCancel={()=>{setModalSaida(null);setFormSaida(blankSaida);setSel(null);}} onSave={salvarSaida} label={modalSaida==='edit'?'Salvar Saída':'Confirmar Saída'} disabled={!formSaida.palhetaId||!formSaida.quantidade||!formSaida.data||Number(formSaida.quantidade)>Number(palDisponivel||0)}/>
       </div>
     </Modal>}
 
     {/* CONFIRMAÇÕES EXCLUSÃO */}
     {modal==='del_bot'&&sel&&<Modal title='Excluir Botijão' onClose={()=>{setModal(null);setSel(null);}}><DelConfirm msg={'Excluir o botijão "'+sel.nome+'"? Todas as palhetas vinculadas serão afetadas.'} onCancel={()=>{setModal(null);setSel(null);}} onConfirm={excluirBot}/></Modal>}
     {modal==='del_pal'&&sel&&<Modal title='Excluir Palheta' onClose={()=>{setModal(null);setSel(null);}}><DelConfirm msg={'Excluir palheta do touro "'+sel.touro+'"?'} onCancel={()=>{setModal(null);setSel(null);}} onConfirm={excluirPal}/></Modal>}
+    {modal==='del_saida'&&sel&&<Modal title='Excluir Saída' onClose={()=>{setModal(null);setSel(null);}}><DelConfirm msg={'Excluir saída de '+sel.quantidade+' dose(s) do touro "'+(sel.touro||'-')+'"? As doses voltam para a palheta.'} onCancel={()=>{setModal(null);setSel(null);}} onConfirm={excluirSaida}/></Modal>}
+    {modal==='bulk_botijoes'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{currentSelected.length} botijão(ões) selecionado(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={[{v:'',l:'Manter sede atual'},...sedeOpts]}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLoteSemen} label='Aplicar nos Selecionados' disabled={!bulk.sedeId}/>
+      </div>
+    </Modal>}
+    {modal==='bulk_palhetas'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{currentSelected.length} palheta(s) selecionada(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Botijão' value={bulk.botijoId} onChange={v=>setBulk(p=>({...p,botijoId:v}))} opts={[{v:'',l:'Manter botijão atual'},...botijoOpts]}/>
+        <Inp label='Raça' value={bulk.raca} onChange={v=>setBulk(p=>({...p,raca:v}))} opts={[{v:'',l:'Manter raça atual'},...racaOpts]}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLoteSemen} label='Aplicar nos Selecionados' disabled={!bulk.botijoId&&!bulk.raca}/>
+      </div>
+    </Modal>}
+    {modal==='bulk_saidas'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
+      <div style={{display:'flex',flexDirection:'column',gap:13}}>
+        <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{currentSelected.length} saída(s) selecionada(s). Preencha apenas o que deseja alterar.</div>
+        <Inp label='Motivo' value={bulk.motivo} onChange={v=>setBulk(p=>({...p,motivo:v}))} opts={[{v:'',l:'Manter motivo atual'},...motivoOpts]}/>
+        <Inp label='Destino / Lote' value={bulk.destino} onChange={v=>setBulk(p=>({...p,destino:v}))} ph='Ex: Lote A, Vaca 2526'/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLoteSemen} label='Aplicar nos Selecionados' disabled={!bulk.motivo&&!bulk.destino}/>
+      </div>
+    </Modal>}
+    {(modal==='bulk_delete_botijoes'||modal==='bulk_delete_palhetas'||modal==='bulk_delete_saidas')&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}>
+      <DelConfirm msg={'Excluir '+currentSelected.length+' registro(s) selecionado(s)? Essa acao nao pode ser desfeita.'} onCancel={()=>setModal(null)} onConfirm={excluirSelecionadosSemen}/>
+    </Modal>}
   </div>
 }
 // ── VENDAS ────────────────────────────────────────────────
