@@ -13,6 +13,10 @@ const BG='#0b0c13',CARD='#11121a',CARD2='#181923',B='#21222f',TX='#eef0f8',D1='#
 
 function fmtDate(s){if(!s)return '-';return new Date(s+'T12:00').toLocaleDateString('pt-BR');}
 function fmtR(n){return 'R$ '+Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2});}
+function manejoMedicamentosTotal(meds){return (Array.isArray(meds)?meds:[]).reduce((s,m)=>s+(parseFloat(m.qtd||0)*parseFloat(m.valor||0)),0);}
+function manejoDeslocamentoTotal(m){return (parseFloat(m?.kmRodados||0)||0)*(parseFloat(m?.valorKm||0)||0);}
+function manejoEquipeTotal(m){return (parseFloat(m?.tempoHoras||0)||0)*(parseInt(m?.pessoas||0)||0)*(parseFloat(m?.valorHoraPessoa||0)||0);}
+function manejoCustoTotal(m){return manejoMedicamentosTotal(m?.medicamentos)+manejoDeslocamentoTotal(m)+manejoEquipeTotal(m);}
 
 // ── UI ATOMS ────────────────────────────────────────────
 function Logo({small}){
@@ -90,7 +94,7 @@ function AIPanel({animais,manejos,estoque,reproducao,financeiro}){
   function send(txt){
     const q=txt||inp.trim();if(!q||load)return;
     setInp('');setMsgs(p=>[...p,{r:'user',t:q}]);setLoad(true);
-    const custoM=manejos.reduce((s,m)=>{const meds=Array.isArray(m.medicamentos)?m.medicamentos:[];return s+meds.reduce((ss,md)=>ss+(md.qtd*md.valor),0);},0)
+    const custoM=manejos.reduce((s,m)=>s+manejoCustoTotal(m),0)
     const sys=`Voce e assistente veterinario especialista em pecuaria de corte do sistema PecuarIA da Cabanha Pagliosa, Palmas-PR. Animais:${JSON.stringify(animais.slice(0,20))} Manejos:${JSON.stringify(manejos.slice(0,10))} CustoManejos:R$${custoM.toFixed(2)} Estoque:${JSON.stringify(estoque)}. Responda em portugues, pratico e objetivo.`
     fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,messages:[{role:'user',content:q}]})})
       .then(r=>r.json()).then(d=>{setMsgs(p=>[...p,{r:'ai',t:d.content?.map(c=>c.text||'').join('')||'Erro.'}]);setLoad(false);})
@@ -116,7 +120,7 @@ function Dashboard({animais,financeiro,estoque,manejos,agenda,sedes}){
   const rec=financeiro.filter(f=>f.tipo==='venda').reduce((s,f)=>s+Number(f.valor),0)
   const dep=financeiro.filter(f=>f.tipo==='despesa').reduce((s,f)=>s+Number(f.valor),0)
   const crit=estoque.filter(e=>e.quantidade<=e.minimo).length
-  const custoM=manejos.reduce((s,m)=>{const meds=Array.isArray(m.medicamentos)?m.medicamentos:[];return s+meds.reduce((ss,md)=>ss+(md.qtd*md.valor),0);},0)
+  const custoM=manejos.reduce((s,m)=>s+manejoCustoTotal(m),0)
   const pend=agenda.filter(a=>a.status==='pendente')
   return <div>
     <div style={{marginBottom:22}}><div style={{color:TX,fontWeight:800,fontSize:22}}>Visao Geral</div><div style={{color:D2,fontSize:13,marginTop:3}}>Cabanha Pagliosa</div></div>
@@ -478,9 +482,9 @@ function ClientesFornecedores({user}){
 }
 
 // ── FINANCEIRO ────────────────────────────────────────────
-const CAT_DESP=['Sanidade','Alimentação/Ração','Mão de Obra','Combustível','Manutenção','Reprodução','Impostos/Taxas','Transporte','Energia Elétrica','Outros']
+const CAT_DESP=['Sanidade','Alimentação/Ração','Mão de Obra','Combustível','Manutenção','Reprodução','Impostos/Taxas','Transporte','Deslocamento/Entrega','Energia Elétrica','Outros']
 const CAT_REC=['Venda de Animais','Arrendamento','Serviços','Outros']
-const catCorFin={Sanidade:PU,'Alimentação/Ração':'#34d399','Mão de Obra':BL,Combustível:'#fb923c',Manutenção:Y,Reprodução:'#f472b6','Impostos/Taxas':R,Transporte:'#a3e635','Energia Elétrica':'#facc15','Venda de Animais':G,Arrendamento:G,Serviços:G,Outros:D1}
+const catCorFin={Sanidade:PU,'Alimentação/Ração':'#34d399','Mão de Obra':BL,Combustível:'#fb923c',Manutenção:Y,Reprodução:'#f472b6','Impostos/Taxas':R,Transporte:'#a3e635','Deslocamento/Entrega':BL,'Energia Elétrica':'#facc15','Venda de Animais':G,Arrendamento:G,Serviços:G,Outros:D1}
 function Financeiro({clientes,user}){
   const {rows,loading,add,update,remove,setRows}=useTable('financeiro')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos'),[fCat,setFCat]=useState('')
@@ -542,6 +546,11 @@ function Financeiro({clientes,user}){
     setRows(p=>p.filter(r=>!ids.includes(r.id)))
     setSelected([]);setModal(null)
   }
+  function abrirDespesaEntrega(){
+    setForm({...blank,tipo:'despesa',categoria:'Deslocamento/Entrega',descricao:'Ida para propriedade - entrega de sal/medicamentos'})
+    setNotaFile(null)
+    setModal('new')
+  }
   function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
   function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
   const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
@@ -573,7 +582,7 @@ function Financeiro({clientes,user}){
   </div>
   const depPorCat=CAT_DESP.map(c=>({cat:c,total:rows.filter(x=>x.tipo==='despesa'&&x.categoria===c).reduce((s,x)=>s+Number(x.valor),0)})).filter(x=>x.total>0)
   return <div>
-    <SH title='💰 Financeiro' action={canEdit&&<Btn onClick={()=>{setForm(blank);setNotaFile(null);setModal('new')}}>+ Novo Lançamento</Btn>}/>
+    <SH title='💰 Financeiro' action={canEdit&&<div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}><Btn v='g' onClick={abrirDespesaEntrega}>+ Ida/Entrega</Btn><Btn onClick={()=>{setForm(blank);setNotaFile(null);setModal('new')}}>+ Novo Lançamento</Btn></div>}/>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(155px,1fr))',gap:12,marginBottom:18}}>
       <StatCard icon='📈' label='Receitas' value={fmtR(rec)} color={G}/>
       <StatCard icon='📉' label='Despesas' value={fmtR(dep)} color={R}/>
@@ -731,7 +740,7 @@ function Reproducao({animais,sedes,user}){
 function Manejos({sedes,user}){
   const {rows,loading,add,update,remove,setRows}=useTable('manejos')
   const blankMed=()=>({id:genId(),nome:'',qtd:'',unidade:'mL',valor:''})
-  const makeBlankForm=()=>({nome:'',data:'',sedeId:sedes[0]?.id||'',cabecas:'',medicamentos:[blankMed()],obs:'',status:'pendente'})
+  const makeBlankForm=()=>({nome:'',data:'',sedeId:sedes[0]?.id||'',cabecas:'',medicamentos:[blankMed()],kmRodados:'',valorKm:'',tempoHoras:'',pessoas:'',valorHoraPessoa:'',obs:'',status:'pendente'})
   const [modal,setModal]=useState(null),[detail,setDetail]=useState(null),[sel,setSel]=useState(null)
   const [form,setForm]=useState(makeBlankForm())
   const [selected,setSelected]=useState([])
@@ -740,13 +749,16 @@ function Manejos({sedes,user}){
   const visibleIds=rows.map(m=>m.id)
   const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
   const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
-  function calcTotal(meds){return (Array.isArray(meds)?meds:[]).reduce((s,m)=>s+(parseFloat(m.qtd||0)*parseFloat(m.valor||0)),0);}
-  const ft=calcTotal(form.medicamentos),fpp=form.cabecas>0?ft/parseFloat(form.cabecas||1):0
+  function calcTotal(meds){return manejoMedicamentosTotal(meds);}
+  function calcDeslocamento(m){return manejoDeslocamentoTotal(m);}
+  function calcEquipe(m){return manejoEquipeTotal(m);}
+  function calcTotalManejo(m){return manejoCustoTotal(m);}
+  const ft=calcTotal(form.medicamentos),fd=calcDeslocamento(form),fe=calcEquipe(form),fg=ft+fd+fe,fpp=form.cabecas>0?fg/parseFloat(form.cabecas||1):0
   function resetForm(){setForm(makeBlankForm());setSel(null);}
-  function buildManejo(){return {...form,cabecas:parseInt(form.cabecas)||0,medicamentos:form.medicamentos.map(m=>({...m,qtd:parseFloat(m.qtd)||0,valor:parseFloat(m.valor)||0}))};}
+  function buildManejo(){return {...form,cabecas:parseInt(form.cabecas)||0,kmRodados:parseFloat(form.kmRodados)||0,valorKm:parseFloat(form.valorKm)||0,tempoHoras:parseFloat(form.tempoHoras)||0,pessoas:parseInt(form.pessoas)||0,valorHoraPessoa:parseFloat(form.valorHoraPessoa)||0,medicamentos:form.medicamentos.map(m=>({...m,qtd:parseFloat(m.qtd)||0,valor:parseFloat(m.valor)||0}))};}
   function loadManejo(m){
     const meds=Array.isArray(m.medicamentos)&&m.medicamentos.length?m.medicamentos:[blankMed()]
-    setForm({nome:m.nome||'',data:m.data||'',sedeId:m.sedeId||sedes[0]?.id||'',cabecas:String(m.cabecas||''),medicamentos:meds.map(md=>({id:md.id||genId(),nome:md.nome||'',qtd:String(md.qtd||''),unidade:md.unidade||'mL',valor:String(md.valor||'')})),obs:m.obs||'',status:m.status||'pendente'})
+    setForm({nome:m.nome||'',data:m.data||'',sedeId:m.sedeId||sedes[0]?.id||'',cabecas:String(m.cabecas||''),medicamentos:meds.map(md=>({id:md.id||genId(),nome:md.nome||'',qtd:String(md.qtd||''),unidade:md.unidade||'mL',valor:String(md.valor||'')})),kmRodados:String(m.kmRodados||''),valorKm:String(m.valorKm||''),tempoHoras:String(m.tempoHoras||''),pessoas:String(m.pessoas||''),valorHoraPessoa:String(m.valorHoraPessoa||''),obs:m.obs||'',status:m.status||'pendente'})
   }
   function addMed(){setForm(f=>({...f,medicamentos:[...f.medicamentos,blankMed()]}));}
   function updMed(i,k,v){setForm(f=>({...f,medicamentos:f.medicamentos.map((m,idx)=>idx===i?{...m,[k]:v}:m)}));}
@@ -797,7 +809,8 @@ function Manejos({sedes,user}){
     <SH title='🩺 Manejos Sanitarios' action={canEdit&&<Btn onClick={()=>{resetForm();setModal('new')}}>+ Novo Manejo</Btn>}/>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:12,marginBottom:20}}>
       <StatCard icon='🩺' label='Total' value={rows.length} color={Y}/>
-      <StatCard icon='💊' label='Custo Total' value={fmtR(rows.reduce((s,m)=>s+calcTotal(m.medicamentos),0))} color={PU}/>
+      <StatCard icon='💊' label='Custo Total' value={fmtR(rows.reduce((s,m)=>s+calcTotalManejo(m),0))} color={PU}/>
+      <StatCard icon='🚗' label='Deslocamento' value={fmtR(rows.reduce((s,m)=>s+calcDeslocamento(m),0))} color={BL}/>
       <StatCard icon='✅' label='Concluidos' value={rows.filter(m=>m.status==='concluido').length} color={G}/>
       <StatCard icon='⏳' label='Pendentes' value={rows.filter(m=>m.status==='pendente').length} color={Y}/>
     </div>
@@ -815,9 +828,9 @@ function Manejos({sedes,user}){
     </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
-          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Manejo</Th><Th>Data</Th><Th>Sede</Th><Th>Cabecas</Th><Th>Custo Total</Th><Th>Custo/Cabeca</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
-          <tbody>{rows.map(m=>{const total=calcTotal(m.medicamentos);const cpp=m.cabecas>0?total/m.cabecas:0;const sede=sedes.find(s=>s.id===m.sedeId);const marcado=selected.includes(m.id);return <TR key={m.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(m.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:700,color:BL,textDecoration:'underline',cursor:'pointer'}} onClick={()=>setDetail(m)}>{m.nome}</Td><Td s={{color:D1}}>{fmtDate(m.data)}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td s={{fontWeight:700,textAlign:'center'}}>{m.cabecas}</Td><Td s={{fontWeight:800,color:PU}}>{fmtR(total)}</Td><Td s={{fontWeight:700,color:Y}}>{fmtR(cpp)}</Td><Td><Badge label={sL[m.status]||m.status} color={sC[m.status]||D1} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(m);loadManejo(m);setModal('edit');}} onDel={()=>{setSel(m);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:1050}}>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Manejo</Th><Th>Data</Th><Th>Sede</Th><Th>Cabecas</Th><Th>Km</Th><Th>Tempo</Th><Th>Pessoas</Th><Th>Custo Total</Th><Th>Custo/Cabeca</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
+          <tbody>{rows.map(m=>{const total=calcTotalManejo(m);const cpp=m.cabecas>0?total/m.cabecas:0;const sede=sedes.find(s=>s.id===m.sedeId);const marcado=selected.includes(m.id);return <TR key={m.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(m.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:700,color:BL,textDecoration:'underline',cursor:'pointer'}} onClick={()=>setDetail(m)}>{m.nome}</Td><Td s={{color:D1}}>{fmtDate(m.data)}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td s={{fontWeight:700,textAlign:'center'}}>{m.cabecas}</Td><Td s={{color:D1}}>{m.kmRodados?m.kmRodados+' km':'-'}</Td><Td s={{color:D1}}>{m.tempoHoras?m.tempoHoras+' h':'-'}</Td><Td s={{fontWeight:700,textAlign:'center'}}>{m.pessoas||'-'}</Td><Td s={{fontWeight:800,color:PU}}>{fmtR(total)}</Td><Td s={{fontWeight:700,color:Y}}>{fmtR(cpp)}</Td><Td><Badge label={sL[m.status]||m.status} color={sC[m.status]||D1} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(m);loadManejo(m);setModal('edit');}} onDel={()=>{setSel(m);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {rows.length===0&&<Empty msg='Nenhum manejo registrado.'/>}
       </div>}
@@ -826,6 +839,16 @@ function Manejos({sedes,user}){
       <div style={{display:'flex',flexDirection:'column',gap:14}}>
         <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}><Inp label='Nome' value={form.nome} onChange={v=>setForm(f=>({...f,nome:v}))}/><Inp label='Data' value={form.data} onChange={v=>setForm(f=>({...f,data:v}))} type='date'/></div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Sede' value={form.sedeId} onChange={v=>setForm(f=>({...f,sedeId:v}))} opts={sedes.map(s=>({v:s.id,l:s.nome}))}/><Inp label='Cabecas' value={form.cabecas} onChange={v=>setForm(f=>({...f,cabecas:v}))} type='number'/></div>
+        <div style={{background:BL+'15',border:'1px solid '+BL+'30',borderRadius:9,padding:'8px 13px',color:BL,fontSize:12,fontWeight:700}}>Deslocamento e equipe</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <Inp label='Km Rodados' value={form.kmRodados} onChange={v=>setForm(f=>({...f,kmRodados:v}))} type='number'/>
+          <Inp label='Valor por Km (R$)' value={form.valorKm} onChange={v=>setForm(f=>({...f,valorKm:v}))} type='number'/>
+          <Inp label='Tempo de Serviço (h)' value={form.tempoHoras} onChange={v=>setForm(f=>({...f,tempoHoras:v}))} type='number'/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Inp label='Quantidade de Pessoas' value={form.pessoas} onChange={v=>setForm(f=>({...f,pessoas:v}))} type='number'/>
+          <Inp label='Valor/Hora por Pessoa (R$)' value={form.valorHoraPessoa} onChange={v=>setForm(f=>({...f,valorHoraPessoa:v}))} type='number'/>
+        </div>
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}><label style={{color:D1,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6}}>Medicamentos</label><Btn v='g' small onClick={addMed}>+ Adicionar</Btn></div>
           <div style={{background:CARD2,borderRadius:10,border:'1px solid '+B,overflow:'hidden'}}>
@@ -841,7 +864,7 @@ function Manejos({sedes,user}){
           </div>
           <div style={{display:'flex',justifyContent:'flex-end',marginTop:10}}>
             <div style={{background:CARD2,border:'1px solid '+B,borderRadius:10,padding:'12px 18px',display:'flex',gap:24}}>
-              {[['Custo Total',fmtR(ft),PU],['Custo/Cabeca',fmtR(fpp),Y],['Cabecas',form.cabecas||'-',TX]].map(([l,v,c])=><div key={l} style={{textAlign:'center'}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>{l}</div><div style={{color:c,fontWeight:800,fontSize:18,marginTop:2}}>{v}</div></div>)}
+              {[['Medicamentos',fmtR(ft),PU],['Deslocamento',fmtR(fd),BL],['Equipe',fmtR(fe),G],['Total Geral',fmtR(fg),Y],['Custo/Cabeca',fmtR(fpp),Y]].map(([l,v,c])=><div key={l} style={{textAlign:'center'}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>{l}</div><div style={{color:c,fontWeight:800,fontSize:18,marginTop:2}}>{v}</div></div>)}
             </div>
           </div>
         </div>
@@ -865,7 +888,7 @@ function Manejos({sedes,user}){
     </Modal>}
     {detail&&<Modal title={detail.nome} onClose={()=>setDetail(null)} wide>
       <div style={{display:'flex',flexDirection:'column',gap:16}}>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>{[['Data',fmtDate(detail.data),TX],['Sede',(sedes.find(s=>s.id===detail.sedeId)||{nome:'-'}).nome,TX],['Cabecas',detail.cabecas,Y],['Status',sL[detail.status]||detail.status,sC[detail.status]||D1]].map(([l,v,c])=><div key={l} style={{background:CARD2,borderRadius:9,padding:'12px 14px',border:'1px solid '+B}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>{l}</div><div style={{color:c,fontWeight:700,fontSize:15,marginTop:4}}>{v}</div></div>)}</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:12}}>{[['Data',fmtDate(detail.data),TX],['Sede',(sedes.find(s=>s.id===detail.sedeId)||{nome:'-'}).nome,TX],['Cabecas',detail.cabecas,Y],['Km',detail.kmRodados?detail.kmRodados+' km':'-',BL],['Tempo',detail.tempoHoras?detail.tempoHoras+' h':'-',G],['Pessoas',detail.pessoas||'-',Y],['Medicamentos',fmtR(calcTotal(detail.medicamentos)),PU],['Deslocamento',fmtR(calcDeslocamento(detail)),BL],['Equipe',fmtR(calcEquipe(detail)),G],['Total',fmtR(calcTotalManejo(detail)),Y],['Custo/Cabeca',fmtR(detail.cabecas>0?calcTotalManejo(detail)/detail.cabecas:0),Y],['Status',sL[detail.status]||detail.status,sC[detail.status]||D1]].map(([l,v,c])=><div key={l} style={{background:CARD2,borderRadius:9,padding:'12px 14px',border:'1px solid '+B}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>{l}</div><div style={{color:c,fontWeight:700,fontSize:15,marginTop:4}}>{v}</div></div>)}</div>
         {detail.obs&&<div style={{color:D1,fontSize:13}}><strong>Obs:</strong> {detail.obs}</div>}
       </div>
     </Modal>}
@@ -1117,9 +1140,9 @@ function ExcelPanel({sedes}){
   function downloadTemplate(tipo){
     const tpls={
       animais:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Nascimento:'2024-08-20',Peso:65,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Nascimento:'2025-01-12',Peso:42,Status:'Ativo',Sede:'Sede Principal'}],
-      financeiro:[{Tipo:'despesa',Categoria:'Sanidade',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Cliente:''}],
+      financeiro:[{Tipo:'despesa',Categoria:'Sanidade',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Cliente:''},{Tipo:'despesa',Categoria:'Deslocamento/Entrega',Descricao:'Ida para propriedade - entrega de sal e medicamentos',Valor:280,Data:'2026-05-02',Cliente:''}],
       estoque:[{Nome:'Ivermectina 1%',Categoria:'Antiparasitário',Quantidade:50,Unidade:'mL',Minimo:10,Sede:'Sede Principal'}],
-      manejos:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charoles',Sexo:'M',Peso:820,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85,Obs:'Dose individual'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Peso:65,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20,Obs:'Animal novo sera criado se nao existir'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Peso:42,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Medicamento:'Vermifugo',Quantidade:3,Unidade:'mL',Valor_Unit:0.95,Obs:'Tambem aceita ovinos e caprinos'}],
+      manejos:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charoles',Sexo:'M',Peso:820,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85,Obs:'Dose individual'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Peso:65,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20,Obs:'Animal novo sera criado se nao existir'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Peso:42,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Vermifugo',Quantidade:3,Unidade:'mL',Valor_Unit:0.95,Obs:'Tambem aceita ovinos e caprinos'}],
       vendas:[{Brinco:'2526',Data:'2026-05-10',Valor:18000,Peso:650,Comprador:'João da Silva',CPF:'000.000.000-00',Telefone:'(46) 99999-9999',Cidade:'Palmas',Estado:'PR',Obs:'GTA 1234'}]
     }
     exportSheet(tipo,tpls[tipo],'Template_'+tipo)
@@ -1160,7 +1183,7 @@ function ExcelPanel({sedes}){
         rows.forEach(r=>{
           const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0]
           const chave=(r.Nome_Manejo||'Manejo')+'||'+(r.Data||'')+'||'+(sede?.id||'')
-          if(!grupos[chave])grupos[chave]={nome:r.Nome_Manejo||'Manejo',data:r.Data||'',sedeId:sede?.id||'',cabecas:Number(r.Num_Cabecas)||0,meds:[],brincos:new Set(),obs:[]}
+          if(!grupos[chave])grupos[chave]={nome:r.Nome_Manejo||'Manejo',data:r.Data||'',sedeId:sede?.id||'',cabecas:Number(r.Num_Cabecas)||0,kmRodados:Number(r.Km_Rodados)||0,valorKm:Number(r.Valor_Km)||0,tempoHoras:Number(r.Tempo_Horas)||0,pessoas:Number(r.Pessoas)||0,valorHoraPessoa:Number(r.Valor_Hora_Pessoa)||0,meds:[],brincos:new Set(),obs:[]}
           const brinco=String(r.Brinco||'').trim()
           if(brinco)grupos[chave].brincos.add(brinco)
           if(r.Obs)grupos[chave].obs.push(String(r.Obs))
@@ -1169,7 +1192,7 @@ function ExcelPanel({sedes}){
         const novos=Object.values(grupos).map(g=>{
           const brincos=[...g.brincos]
           const obs=['Importado via Excel',brincos.length?'Animais: '+brincos.join(', '):'',...g.obs].filter(Boolean).join(' | ')
-          return {id:genId(),nome:g.nome,data:g.data,sedeId:g.sedeId,cabecas:brincos.length||g.cabecas,medicamentos:g.meds,obs,status:'concluido'}
+          return {id:genId(),nome:g.nome,data:g.data,sedeId:g.sedeId,cabecas:brincos.length||g.cabecas,kmRodados:g.kmRodados,valorKm:g.valorKm,tempoHoras:g.tempoHoras,pessoas:g.pessoas,valorHoraPessoa:g.valorHoraPessoa,medicamentos:g.meds,obs,status:'concluido'}
         })
         if(novos.length)await sb.from('manejos').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' manejo(s) criado(s), '+novosAnimais.length+' animal(is) novo(s) cadastrado(s) e '+rows.length+' linha(s) processada(s)!'})
