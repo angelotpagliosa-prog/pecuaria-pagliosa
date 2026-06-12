@@ -488,7 +488,7 @@ const catCorFin={Sanidade:PU,'Alimentação/Ração':'#34d399','Mão de Obra':BL
 function Financeiro({clientes,user}){
   const {rows,loading,add,update,remove,setRows}=useTable('financeiro')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos'),[fCat,setFCat]=useState('')
-  const blank={tipo:'despesa',categoria:'Outros',descricao:'',valor:'',data:'',clienteId:'',notaNumero:'',notaSerie:'',notaChave:'',notaEmissao:'',notaUrl:'',notaObs:''}
+  const blank={tipo:'despesa',categoria:'Outros',descricao:'',valor:'',data:'',clienteId:'',propriedadeDestino:'',kmRodados:'',valorKm:'',notaNumero:'',notaSerie:'',notaChave:'',notaEmissao:'',notaUrl:'',notaObs:''}
   const [form,setForm]=useState(blank)
   const [notaFile,setNotaFile]=useState(null)
   const [uploading,setUploading]=useState(false)
@@ -504,6 +504,16 @@ function Financeiro({clientes,user}){
   const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
   const catOpts=form.tipo==='venda'?CAT_REC.map(c=>({v:c,l:c})):CAT_DESP.map(c=>({v:c,l:c}))
   const allCatOpts=[...new Set([...CAT_REC,...CAT_DESP])].map(c=>({v:c,l:c}))
+  const isDeslocamento=form.categoria==='Deslocamento/Entrega'
+  function calcFinanceiroDeslocamento(f){return (parseFloat(f.kmRodados||0)||0)*(parseFloat(f.valorKm||0)||0);}
+  function setDeslocamento(v){
+    setForm(p=>{
+      const next={...p,...v,categoria:'Deslocamento/Entrega',tipo:'despesa'}
+      const total=calcFinanceiroDeslocamento(next)
+      return {...next,valor:total>0?String(total):next.valor}
+    })
+  }
+  function buildFinanceiro(notaUrl){return {...form,notaUrl,valor:Number(form.valor),kmRodados:Number(form.kmRodados)||0,valorKm:Number(form.valorKm)||0};}
   async function uploadNota(id){
     if(!notaFile)return form.notaUrl||''
     const safe=notaFile.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9._-]/g,'-')
@@ -515,12 +525,12 @@ function Financeiro({clientes,user}){
   }
   async function salvarNovo(){
     const id=genId()
-    try{setUploading(true);const notaUrl=await uploadNota(id);await add({id,...form,notaUrl,valor:Number(form.valor)});setModal(null);setForm(blank);setNotaFile(null)}
+    try{setUploading(true);const notaUrl=await uploadNota(id);await add({id,...buildFinanceiro(notaUrl)});setModal(null);setForm(blank);setNotaFile(null)}
     catch(e){alert('Erro ao salvar: '+e.message)}
     finally{setUploading(false)}
   }
   async function salvarEdit(){
-    try{setUploading(true);const notaUrl=await uploadNota(sel.id);await update(sel.id,{...form,notaUrl,valor:Number(form.valor)});setModal(null);setNotaFile(null)}
+    try{setUploading(true);const notaUrl=await uploadNota(sel.id);await update(sel.id,buildFinanceiro(notaUrl));setModal(null);setNotaFile(null)}
     catch(e){alert('Erro ao salvar: '+e.message)}
     finally{setUploading(false)}
   }
@@ -563,6 +573,18 @@ function Financeiro({clientes,user}){
     <Inp label='Descrição' value={form.descricao} onChange={v=>fv({descricao:v})} ph='Ex: Ivermectina lote A, Venda Touro 2526...'/>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Valor (R$)' value={form.valor} onChange={v=>fv({valor:v})} type='number'/><Inp label='Data' value={form.data} onChange={v=>fv({data:v})} type='date'/></div>
     <Inp label='Cliente / Fornecedor' value={form.clienteId} onChange={v=>fv({clienteId:v})} opts={cliOpts}/>
+    {isDeslocamento&&<div style={{display:'flex',flexDirection:'column',gap:13}}>
+      <div style={{background:BL+'15',border:'1px solid '+BL+'30',borderRadius:9,padding:'8px 13px',color:BL,fontSize:12,fontWeight:700}}>Deslocamento até a propriedade</div>
+      <Inp label='Propriedade / Destino' value={form.propriedadeDestino} onChange={v=>setDeslocamento({propriedadeDestino:v})} ph='Ex: Sede Principal, Fazenda X'/>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+        <Inp label='Km Rodados' value={form.kmRodados} onChange={v=>setDeslocamento({kmRodados:v})} type='number'/>
+        <Inp label='Valor por Km (R$)' value={form.valorKm} onChange={v=>setDeslocamento({valorKm:v})} type='number'/>
+        <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'10px 12px'}}>
+          <div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Total KM</div>
+          <div style={{color:Y,fontWeight:800,fontSize:18,marginTop:4}}>{fmtR(calcFinanceiroDeslocamento(form))}</div>
+        </div>
+      </div>
+    </div>}
     <div style={{background:Y+'15',border:'1px solid '+Y+'30',borderRadius:9,padding:'8px 13px',color:Y,fontSize:12,fontWeight:700,marginTop:4}}>📄 Nota Fiscal</div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
       <Inp label='Numero da Nota' value={form.notaNumero} onChange={v=>fv({notaNumero:v})}/>
@@ -608,9 +630,9 @@ function Financeiro({clientes,user}){
     </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
-          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Cliente/Fornecedor</Th><Th>Nota</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
-          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;const temNota=x.notaNumero||x.notaUrl||x.notaChave;const marcado=selected.includes(x.id);return <TR key={x.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(x.id)} style={checkStyle}/></Td>}<Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td><Td>{temNota?(x.notaUrl?<a href={x.notaUrl} target='_blank' rel='noreferrer' style={{color:Y,textDecoration:'none',fontWeight:700}}>NF {x.notaNumero||'anexo'}</a>:<Badge label={'NF '+(x.notaNumero||'informada')} color={Y}/>):<span style={{color:D2}}>-</span>}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setNotaFile(null);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||'',notaNumero:x.notaNumero||'',notaSerie:x.notaSerie||'',notaChave:x.notaChave||'',notaEmissao:x.notaEmissao||'',notaUrl:x.notaUrl||'',notaObs:x.notaObs||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:1050}}>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Destino/Km</Th><Th>Cliente/Fornecedor</Th><Th>Nota</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
+          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;const temNota=x.notaNumero||x.notaUrl||x.notaChave;const marcado=selected.includes(x.id);const desloc=x.categoria==='Deslocamento/Entrega';return <TR key={x.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(x.id)} style={checkStyle}/></Td>}<Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1,fontSize:12}}>{desloc?<div><div style={{color:TX,fontWeight:700}}>{x.propriedadeDestino||'-'}</div><div style={{color:BL,fontWeight:700}}>{x.kmRodados?x.kmRodados+' km':'-'}</div></div>:'-'}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td><Td>{temNota?(x.notaUrl?<a href={x.notaUrl} target='_blank' rel='noreferrer' style={{color:Y,textDecoration:'none',fontWeight:700}}>NF {x.notaNumero||'anexo'}</a>:<Badge label={'NF '+(x.notaNumero||'informada')} color={Y}/>):<span style={{color:D2}}>-</span>}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setNotaFile(null);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||'',propriedadeDestino:x.propriedadeDestino||'',kmRodados:String(x.kmRodados||''),valorKm:String(x.valorKm||''),notaNumero:x.notaNumero||'',notaSerie:x.notaSerie||'',notaChave:x.notaChave||'',notaEmissao:x.notaEmissao||'',notaUrl:x.notaUrl||'',notaObs:x.notaObs||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {lista.length===0&&<Empty/>}
       </div>}
@@ -1135,12 +1157,12 @@ function ExcelPanel({sedes}){
   const [importTab,setImportTab]=useState('animais'),[importMsg,setImportMsg]=useState(null),[preview,setPreview]=useState(null)
   function exportSheet(name,data,file){const ws=XLSX.utils.json_to_sheet(data);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,name);XLSX.writeFile(wb,file+'.xlsx');}
   function exportAnimais(){exportSheet('Rebanho',animais.map(a=>{const s=sedes.find(x=>x.id===a.sedeId)||{nome:''};return {Brinco:a.brinco,Nome:a.nome||'',Especie:a.especie||'Bovino',Categoria:a.categoria||'',Raca:a.raca,Sexo:a.sexo,Nascimento:a.nascimento||'',Peso:a.peso||'',Status:a.status,Sede:s.nome};}),'PecuarIA_Rebanho');}
-  function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Categoria:f.categoria||'',Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Cliente:c.nome||''};}),'PecuarIA_Financeiro');}
+  function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Categoria:f.categoria||'',Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Propriedade:f.propriedadeDestino||'',Km_Rodados:f.kmRodados||'',Valor_Km:f.valorKm||'',Cliente:c.nome||''};}),'PecuarIA_Financeiro');}
   function exportEst(){exportSheet('Estoque',estoque.map(e=>{const s=sedes.find(x=>x.id===e.sedeId)||{nome:''};return {Nome:e.nome,Categoria:e.categoria,Quantidade:e.quantidade,Unidade:e.unidade,Minimo:e.minimo,Sede:s.nome};}),'PecuarIA_Estoque');}
   function downloadTemplate(tipo){
     const tpls={
       animais:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Nascimento:'2024-08-20',Peso:65,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Nascimento:'2025-01-12',Peso:42,Status:'Ativo',Sede:'Sede Principal'}],
-      financeiro:[{Tipo:'despesa',Categoria:'Sanidade',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Cliente:''},{Tipo:'despesa',Categoria:'Deslocamento/Entrega',Descricao:'Ida para propriedade - entrega de sal e medicamentos',Valor:280,Data:'2026-05-02',Cliente:''}],
+      financeiro:[{Tipo:'despesa',Categoria:'Sanidade',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Deslocamento/Entrega',Descricao:'Ida para propriedade - entrega de sal e medicamentos',Valor:280,Data:'2026-05-02',Propriedade:'Sede Principal',Km_Rodados:112,Valor_Km:2.5,Cliente:''}],
       estoque:[{Nome:'Ivermectina 1%',Categoria:'Antiparasitário',Quantidade:50,Unidade:'mL',Minimo:10,Sede:'Sede Principal'}],
       manejos:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charoles',Sexo:'M',Peso:820,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85,Obs:'Dose individual'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Peso:65,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20,Obs:'Animal novo sera criado se nao existir'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Peso:42,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Vermifugo',Quantidade:3,Unidade:'mL',Valor_Unit:0.95,Obs:'Tambem aceita ovinos e caprinos'}],
       vendas:[{Brinco:'2526',Data:'2026-05-10',Valor:18000,Peso:650,Comprador:'João da Silva',CPF:'000.000.000-00',Telefone:'(46) 99999-9999',Cidade:'Palmas',Estado:'PR',Obs:'GTA 1234'}]
@@ -1157,7 +1179,7 @@ function ExcelPanel({sedes}){
         await sb.from('animais').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' animal(is) importado(s)!'})
       } else if(importTab==='financeiro'){
-        const novos=rows.map(r=>{const cli=clientes.find(c=>c.nome===r.Cliente);return {id:genId(),tipo:['venda','Venda','receita','Receita'].includes(r.Tipo)?'venda':'despesa',categoria:r.Categoria||'Outros',descricao:r.Descricao||'',valor:Number(r.Valor)||0,data:r.Data||'',clienteId:cli?.id||''};}).filter(f=>f.descricao)
+        const novos=rows.map(r=>{const cli=clientes.find(c=>c.nome===r.Cliente);const km=Number(r.Km_Rodados)||0,valorKm=Number(r.Valor_Km)||0,totalKm=km*valorKm;return {id:genId(),tipo:['venda','Venda','receita','Receita'].includes(r.Tipo)?'venda':'despesa',categoria:r.Categoria||'Outros',descricao:r.Descricao||'',valor:Number(r.Valor)||totalKm||0,data:r.Data||'',propriedadeDestino:r.Propriedade||'',kmRodados:km,valorKm,clienteId:cli?.id||''};}).filter(f=>f.descricao)
         await sb.from('financeiro').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' lançamento(s) importado(s)!'})
       } else if(importTab==='estoque'){
