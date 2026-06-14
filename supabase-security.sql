@@ -1,8 +1,9 @@
 -- PecuarIA - seguranca inicial para uso com dados reais
 -- Rode este arquivo no Supabase SQL Editor somente depois de:
--- 1. Criar os usuarios em Authentication > Users
--- 2. Copiar o User ID de cada usuario
--- 3. Preencher usuarios.authUserId com o User ID correto
+-- 1. Rodar supabase-auth-prep.sql, se a coluna authUserId ainda nao existir
+-- 2. Criar os usuarios em Authentication > Users
+-- 3. Copiar o User ID de cada usuario
+-- 4. Preencher usuarios.authUserId com o User ID correto
 
 alter table public.usuarios add column if not exists "authUserId" uuid;
 create index if not exists usuarios_auth_user_id_idx on public.usuarios("authUserId");
