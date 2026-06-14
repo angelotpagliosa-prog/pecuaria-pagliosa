@@ -482,9 +482,9 @@ function ClientesFornecedores({user}){
 }
 
 // ── FINANCEIRO ────────────────────────────────────────────
-const CAT_DESP=['Sanidade','Alimentação/Ração','Mão de Obra','Combustível','Manutenção','Reprodução','Impostos/Taxas','Transporte','Deslocamento/Entrega','Energia Elétrica','Outros']
+const CAT_DESP=['Sanidade','Alimentação/Ração','Mão de Obra','Combustível','Manutenção','Feitio de Cerca','Roçada','Extração de Erva Mate','Plantio de Erva Mate','Viveiro','Reprodução','Impostos/Taxas','Transporte','Deslocamento/Entrega','Energia Elétrica','Outros']
 const CAT_REC=['Venda de Animais','Arrendamento','Serviços','Outros']
-const catCorFin={Sanidade:PU,'Alimentação/Ração':'#34d399','Mão de Obra':BL,Combustível:'#fb923c',Manutenção:Y,Reprodução:'#f472b6','Impostos/Taxas':R,Transporte:'#a3e635','Deslocamento/Entrega':BL,'Energia Elétrica':'#facc15','Venda de Animais':G,Arrendamento:G,Serviços:G,Outros:D1}
+const catCorFin={Sanidade:PU,'Alimentação/Ração':'#34d399','Mão de Obra':BL,Combustível:'#fb923c',Manutenção:Y,'Feitio de Cerca':'#eab308',Roçada:'#84cc16','Extração de Erva Mate':'#10b981','Plantio de Erva Mate':'#22c55e',Viveiro:'#38bdf8',Reprodução:'#f472b6','Impostos/Taxas':R,Transporte:'#a3e635','Deslocamento/Entrega':BL,'Energia Elétrica':'#facc15','Venda de Animais':G,Arrendamento:G,Serviços:G,Outros:D1}
 function Financeiro({clientes,user}){
   const {rows,loading,add,update,remove,setRows}=useTable('financeiro')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos'),[fCat,setFCat]=useState('')
