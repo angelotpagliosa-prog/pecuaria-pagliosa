@@ -71,12 +71,16 @@ const ActBtns=({onEdit,onDel})=><div style={{display:'flex',gap:6}}><button onCl
 const Loading=()=><div style={{display:'flex',alignItems:'center',justifyContent:'center',height:200,color:D1,fontSize:14,gap:10}}><div style={{width:20,height:20,border:'2px solid '+B,borderTop:'2px solid '+Y,borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>Carregando...</div>
 
 // ── HOOKS SUPABASE ───────────────────────────────────────
-function useTable(table){
+function useTable(table,enabled=true){
   const [rows,setRows]=useState([])
   const [loading,setLoading]=useState(true)
   useEffect(()=>{
-    sb.from(table).select('*').then(({data})=>{setRows(data||[]);setLoading(false);})
-  },[table])
+    let alive=true
+    if(!enabled){setRows([]);setLoading(false);return}
+    setLoading(true)
+    sb.from(table).select('*').then(({data})=>{if(alive){setRows(data||[]);setLoading(false);}})
+    return ()=>{alive=false}
+  },[table,enabled])
   async function add(obj){const {data,error}=await sb.from(table).insert([obj]).select();if(error)throw error;if(data)setRows(p=>[...p,data[0]]);}
   async function update(id,obj){const {data,error}=await sb.from(table).update(obj).eq('id',id).select();if(error)throw error;if(data)setRows(p=>p.map(r=>r.id===id?data[0]:r));}
   async function remove(id){const {error}=await sb.from(table).delete().eq('id',id);if(error)throw error;setRows(p=>p.filter(r=>r.id!==id));}
@@ -520,8 +524,22 @@ function Financeiro({clientes,user}){
     const path=id+'/'+Date.now()+'-'+safe
     const {error}=await sb.storage.from('notas-fiscais').upload(path,notaFile,{upsert:true})
     if(error)throw error
-    const {data}=sb.storage.from('notas-fiscais').getPublicUrl(path)
-    return data?.publicUrl||''
+    return 'storage:notas-fiscais/'+path
+  }
+  function storageNotaPath(url){
+    const prefix='storage:notas-fiscais/'
+    return url?.startsWith(prefix)?url.slice(prefix.length):''
+  }
+  async function abrirNotaFiscal(url){
+    if(!url)return
+    const path=storageNotaPath(url)
+    if(path){
+      const {data,error}=await sb.storage.from('notas-fiscais').createSignedUrl(path,600)
+      if(error){alert('Erro ao abrir nota fiscal: '+error.message);return}
+      window.open(data.signedUrl,'_blank','noopener,noreferrer')
+      return
+    }
+    window.open(url,'_blank','noopener,noreferrer')
   }
   async function salvarNovo(){
     const id=genId()
@@ -598,7 +616,7 @@ function Financeiro({clientes,user}){
     <div style={{display:'flex',flexDirection:'column',gap:5}}>
       <label style={{color:D1,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6}}>Foto ou PDF da Nota</label>
       <input type='file' accept='image/*,.pdf' onChange={e=>setNotaFile(e.target.files?.[0]||null)} style={{background:CARD2,border:'1px solid '+B,borderRadius:8,padding:'9px 12px',color:D1,fontSize:13,width:'100%'}}/>
-      <div style={{color:D2,fontSize:11}}>Usa o bucket Supabase Storage chamado notas-fiscais.</div>
+      <div style={{color:D2,fontSize:11}}>Usa o bucket privado notas-fiscais e abre anexos com link temporario.</div>
     </div>
     <Inp label='Observacoes da Nota' value={form.notaObs} onChange={v=>fv({notaObs:v})}/>
   </div>
@@ -632,7 +650,7 @@ function Financeiro({clientes,user}){
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',minWidth:1050}}>
           <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Destino/Km</Th><Th>Cliente/Fornecedor</Th><Th>Nota</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
-          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;const temNota=x.notaNumero||x.notaUrl||x.notaChave;const marcado=selected.includes(x.id);const desloc=x.categoria==='Deslocamento/Entrega';return <TR key={x.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(x.id)} style={checkStyle}/></Td>}<Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1,fontSize:12}}>{desloc?<div><div style={{color:TX,fontWeight:700}}>{x.propriedadeDestino||'-'}</div><div style={{color:BL,fontWeight:700}}>{x.kmRodados?x.kmRodados+' km':'-'}</div></div>:'-'}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td><Td>{temNota?(x.notaUrl?<a href={x.notaUrl} target='_blank' rel='noreferrer' style={{color:Y,textDecoration:'none',fontWeight:700}}>NF {x.notaNumero||'anexo'}</a>:<Badge label={'NF '+(x.notaNumero||'informada')} color={Y}/>):<span style={{color:D2}}>-</span>}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setNotaFile(null);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||'',propriedadeDestino:x.propriedadeDestino||'',kmRodados:String(x.kmRodados||''),valorKm:String(x.valorKm||''),notaNumero:x.notaNumero||'',notaSerie:x.notaSerie||'',notaChave:x.notaChave||'',notaEmissao:x.notaEmissao||'',notaUrl:x.notaUrl||'',notaObs:x.notaObs||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
+          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;const temNota=x.notaNumero||x.notaUrl||x.notaChave;const marcado=selected.includes(x.id);const desloc=x.categoria==='Deslocamento/Entrega';return <TR key={x.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(x.id)} style={checkStyle}/></Td>}<Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1,fontSize:12}}>{desloc?<div><div style={{color:TX,fontWeight:700}}>{x.propriedadeDestino||'-'}</div><div style={{color:BL,fontWeight:700}}>{x.kmRodados?x.kmRodados+' km':'-'}</div></div>:'-'}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td><Td>{temNota?(x.notaUrl?<button onClick={()=>abrirNotaFiscal(x.notaUrl)} style={{background:'transparent',border:'none',color:Y,textDecoration:'none',fontWeight:700,cursor:'pointer',padding:0}}>NF {x.notaNumero||'anexo'}</button>:<Badge label={'NF '+(x.notaNumero||'informada')} color={Y}/>):<span style={{color:D2}}>-</span>}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setNotaFile(null);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||'',propriedadeDestino:x.propriedadeDestino||'',kmRodados:String(x.kmRodados||''),valorKm:String(x.valorKm||''),notaNumero:x.notaNumero||'',notaSerie:x.notaSerie||'',notaChave:x.notaChave||'',notaEmissao:x.notaEmissao||'',notaUrl:x.notaUrl||'',notaObs:x.notaObs||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {lista.length===0&&<Empty/>}
       </div>}
@@ -1092,26 +1110,33 @@ function Sedes({user}){
 // ── USUARIOS ──────────────────────────────────────────────
 function Usuarios({sedes}){
   const {rows,loading,add}=useTable('usuarios')
-  const blank={nome:'',email:'',senha:'',perfil:'funcionario',sedeId:''}
+  const blank={nome:'',email:'',senha:'',authUserId:'',perfil:'funcionario',sedeId:''}
   const [modal,setModal]=useState(false),[form,setForm]=useState(blank)
   const fv=v=>setForm(p=>({...p,...v}))
-  async function salvar(){await add({id:genId(),...form});setModal(false);setForm(blank);}
+  async function salvar(){
+    const obj={id:genId(),nome:form.nome,email:form.email,perfil:form.perfil,sedeId:form.sedeId}
+    if(form.authUserId)obj.authUserId=form.authUserId
+    if(form.senha)obj.senha=form.senha
+    await add(obj);setModal(false);setForm(blank);
+  }
   const pColor={admin:Y,gestor:G,funcionario:BL}
   return <div>
     <SH title='👥 Gestao de Usuarios' action={<Btn onClick={()=>setModal(true)}>+ Novo Usuario</Btn>}/>
     {loading?<Loading/>:<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
       {rows.map(u=>{const sede=sedes.find(s=>s.id===u.sedeId);const pc=pColor[u.perfil]||D1;return <div key={u.id} style={{background:CARD,border:'1px solid '+B,borderLeft:'3px solid '+pc,borderRadius:12,padding:20}}>
         <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}><div style={{width:38,height:38,borderRadius:9,background:pc+'20',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>👤</div><div><div style={{color:TX,fontWeight:700,fontSize:14}}>{u.nome}</div><div style={{color:D2,fontSize:12,marginTop:2}}>{u.email}</div></div></div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}><Badge label={u.perfil} color={pc}/><span style={{color:D2,fontSize:11}}>{sede?.nome||'Todas as sedes'}</span></div>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><Badge label={u.perfil} color={pc}/><Badge label={u.authUserId?'Auth ligado':'Auth pendente'} color={u.authUserId?G:R}/><span style={{color:D2,fontSize:11}}>{sede?.nome||'Todas as sedes'}</span></div>
       </div>})}
     </div>}
     {modal&&<Modal title='Novo Usuario' onClose={()=>setModal(false)}>
       <div style={{display:'flex',flexDirection:'column',gap:13}}>
         <Inp label='Nome Completo' value={form.nome} onChange={v=>fv({nome:v})}/>
         <Inp label='E-mail' value={form.email} onChange={v=>fv({email:v})} type='email'/>
-        <Inp label='Senha' value={form.senha} onChange={v=>fv({senha:v})} type='password'/>
+        <div style={{background:BL+'12',border:'1px solid '+BL+'35',borderRadius:10,padding:12,color:D1,fontSize:12,lineHeight:1.5}}>Crie o usuario em Supabase Authentication primeiro. Depois cole aqui o User ID para ligar este perfil ao login seguro.</div>
+        <Inp label='Auth User ID' value={form.authUserId} onChange={v=>fv({authUserId:v})} ph='UUID do usuario no Supabase Auth'/>
+        <Inp label='Senha antiga (temporaria)' value={form.senha} onChange={v=>fv({senha:v})} type='password' ph='Use apenas ate migrar para Auth'/>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Perfil' value={form.perfil} onChange={v=>fv({perfil:v})} opts={[{v:'admin',l:'Admin'},{v:'gestor',l:'Gestor'},{v:'funcionario',l:'Funcionario'}]}/><Inp label='Sede' value={form.sedeId} onChange={v=>fv({sedeId:v})} opts={[{v:'',l:'Todas'},...sedes.map(s=>({v:s.id,l:s.nome}))]}/></div>
-        <MFooter onCancel={()=>setModal(false)} onSave={salvar} label='Criar Usuario' disabled={!form.nome||!form.email||!form.senha}/>
+        <MFooter onCancel={()=>setModal(false)} onSave={salvar} label='Criar Usuario' disabled={!form.nome||!form.email}/>
       </div>
     </Modal>}
   </div>
@@ -1771,21 +1796,78 @@ const NAV=[
 export default function App(){
   const [user,setUser]=useState(null)
   const [email,setEmail]=useState(''),[senha,setSenha]=useState(''),[err,setErr]=useState('')
+  const [authReady,setAuthReady]=useState(false),[loginLoad,setLoginLoad]=useState(false)
   const [mod,setMod]=useState('dashboard'),[col,setCol]=useState(false)
-  const {rows:sedes,loading:loadSedes}=useTable('sedes')
-  const {rows:animais}=useTable('animais')
-  const {rows:financeiro}=useTable('financeiro')
-  const {rows:estoque}=useTable('estoque')
-  const {rows:manejos}=useTable('manejos')
-  const {rows:agenda}=useTable('agenda')
-  const {rows:reproducao}=useTable('reproducao')
-  const {rows:clientes}=useTable('clientes')
+  const dataEnabled=!!user
+  const {rows:sedes,loading:loadSedes}=useTable('sedes',dataEnabled)
+  const {rows:animais}=useTable('animais',dataEnabled)
+  const {rows:financeiro}=useTable('financeiro',dataEnabled)
+  const {rows:estoque}=useTable('estoque',dataEnabled)
+  const {rows:manejos}=useTable('manejos',dataEnabled)
+  const {rows:agenda}=useTable('agenda',dataEnabled)
+  const {rows:reproducao}=useTable('reproducao',dataEnabled)
+  const {rows:clientes}=useTable('clientes',dataEnabled)
+
+  useEffect(()=>{
+    let active=true
+    async function initAuth(){
+      const {data}=await sb.auth.getSession()
+      if(data?.session?.user)await carregarPerfil(data.session.user,{silent:true})
+      if(active)setAuthReady(true)
+    }
+    const {data:{subscription}={}}=sb.auth.onAuthStateChange((_event,session)=>{
+      if(!active)return
+      if(session?.user)carregarPerfil(session.user,{silent:true})
+      else setUser(null)
+    })
+    initAuth()
+    return ()=>{active=false;subscription?.unsubscribe?.()}
+  },[])
+
+  async function carregarPerfil(authUser,{silent=false}={}){
+    const authEmail=(authUser?.email||'').trim()
+    let perfil=null
+    const byId=await sb.from('usuarios').select('*').eq('authUserId',authUser.id).maybeSingle()
+    if(byId.data)perfil=byId.data
+    if(!perfil&&authEmail){
+      const byEmail=await sb.from('usuarios').select('*').eq('email',authEmail).maybeSingle()
+      if(byEmail.data){
+        perfil=byEmail.data
+        if(!perfil.authUserId){
+          const linked=await sb.from('usuarios').update({authUserId:authUser.id}).eq('id',perfil.id).select().maybeSingle()
+          if(linked.data)perfil=linked.data
+        }
+      }
+    }
+    if(perfil){setUser(perfil);setErr('');return perfil}
+    await sb.auth.signOut()
+    if(!silent)setErr('Login seguro feito, mas este e-mail ainda nao tem perfil na tabela usuarios.')
+    return null
+  }
 
   async function login(){
-    const {data,error}=await sb.from('usuarios').select('*').eq('email',email).eq('senha',senha).single()
-    if(data)setUser(data)
-    else setErr('E-mail ou senha incorretos.')
+    const emailLogin=email.trim()
+    if(!emailLogin||!senha){setErr('Preencha e-mail e senha.');return}
+    setLoginLoad(true);setErr('')
+    const {data,error}=await sb.auth.signInWithPassword({email:emailLogin,password:senha})
+    if(!error&&data?.user){
+      const perfil=await carregarPerfil(data.user)
+      if(perfil)setSenha('')
+      setLoginLoad(false)
+      return
+    }
+    const legacy=await sb.from('usuarios').select('*').eq('email',emailLogin).eq('senha',senha).maybeSingle()
+    if(legacy.data){setUser({...legacy.data,authModo:'legacy'});setSenha('');setErr('')}
+    else setErr('E-mail ou senha incorretos. Se voce ja criou o usuario no Supabase Auth, confira o Auth User ID no perfil.')
+    setLoginLoad(false)
   }
+
+  async function logout(){
+    await sb.auth.signOut()
+    setUser(null);setSenha('');setMod('dashboard')
+  }
+
+  if(!authReady)return <div style={{minHeight:'100vh',background:BG,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'system-ui,sans-serif',color:D1}}><style>{`*{box-sizing:border-box}@keyframes spin{to{transform:rotate(360deg)}}`}</style><Loading/></div>
 
   if(!user) return <div style={{minHeight:'100vh',background:BG,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'system-ui,sans-serif'}}>
     <style>{`*{box-sizing:border-box}input,select{outline:none}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
@@ -1798,11 +1880,11 @@ export default function App(){
         <Inp label='E-mail' value={email} onChange={setEmail} type='email' ph='seu@email.com'/>
         <Inp label='Senha' value={senha} onChange={setSenha} type='password' ph='********'/>
         {err&&<div style={{color:R,fontSize:12,textAlign:'center',background:R+'15',borderRadius:7,padding:'8px'}}>{err}</div>}
-        <button onClick={login} style={{background:Y,color:'#000',border:'none',borderRadius:10,padding:'13px',fontWeight:800,fontSize:14,cursor:'pointer',marginTop:4}}>Entrar no Sistema</button>
+        <button onClick={login} disabled={loginLoad} style={{background:Y,color:'#000',border:'none',borderRadius:10,padding:'13px',fontWeight:800,fontSize:14,cursor:loginLoad?'not-allowed':'pointer',marginTop:4,opacity:loginLoad?0.55:1}}>{loginLoad?'Entrando...':'Entrar no Sistema'}</button>
       </div>
       <div style={{marginTop:16,padding:12,background:CARD2,borderRadius:10,border:'1px solid '+B,fontSize:11,color:D2}}>
-        <div style={{fontWeight:700,color:D1,marginBottom:4}}>Primeiro acesso?</div>
-        <div>Cadastre um usuario em Supabase → Table Editor → usuarios</div>
+        <div style={{fontWeight:700,color:D1,marginBottom:4}}>Login seguro</div>
+        <div>Crie o usuario em Supabase Auth e vincule o Auth User ID no perfil do sistema.</div>
       </div>
     </div>
   </div>
@@ -1823,13 +1905,14 @@ export default function App(){
         <button onClick={()=>setCol(!col)} style={{width:'100%',padding:'8px',background:'transparent',border:'1px solid '+B,color:D2,cursor:'pointer',fontSize:13,borderRadius:8}}>{col?'▶':'◀'}</button>
         {!col&&<div style={{padding:'10px 12px 4px'}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}><div style={{width:30,height:30,borderRadius:8,background:Y+'18',border:'1px solid '+Y+'40',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,color:Y,fontSize:14}}>{user.nome?.charAt(0)}</div><div><div style={{color:TX,fontSize:12,fontWeight:700}}>{user.nome?.split(' ')[0]}</div><div style={{color:D2,fontSize:10,textTransform:'capitalize'}}>{user.perfil}</div></div></div>
-          <button onClick={()=>setUser(null)} style={{marginTop:8,color:R,background:'none',border:'none',cursor:'pointer',fontSize:11,padding:0,fontWeight:600}}>Sair</button>
+          <button onClick={logout} style={{marginTop:8,color:R,background:'none',border:'none',cursor:'pointer',fontSize:11,padding:0,fontWeight:600}}>Sair</button>
         </div>}
       </div>
     </div>
     <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
       <div style={{height:58,background:CARD,borderBottom:'1px solid '+B,display:'flex',alignItems:'center',padding:'0 26px',gap:12,flexShrink:0}}>
         <div style={{flex:1}}><div style={{color:TX,fontWeight:700,fontSize:15}}>{curNav.icon} {curNav.label}</div><div style={{color:D2,fontSize:11,marginTop:1}}>Cabanha Pagliosa - {user.nome}</div></div>
+        {user.authModo==='legacy'&&<div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:8,padding:'5px 11px',fontSize:11,color:Y,fontWeight:700}}>Login antigo: vincule no Supabase Auth antes de ativar RLS</div>}
         {critCount>0&&<div style={{background:R+'15',border:'1px solid '+R+'30',borderRadius:8,padding:'5px 11px',fontSize:11,color:R,fontWeight:700}}>{critCount} item(s) critico(s)</div>}
         <div style={{width:34,height:34,borderRadius:9,background:Y+'18',border:'1px solid '+Y+'40',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,color:Y,fontSize:14}}>{user.nome?.charAt(0)}</div>
       </div>
