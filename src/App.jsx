@@ -1169,9 +1169,39 @@ function Sedes({user}){
   async function salvarNova(){await add({id:genId(),...form});setModal(null);setForm({nome:'',cidade:'',estado:'PR'});}
   async function salvarEdit(){await update(sel.id,form);setModal(null);}
   async function confirmarDel(){await remove(sel.id);setModal(null);}
-  async function salvarNovoPiquete(){await addPiquete({id:genId(),...formPiquete,areaHa:Number(formPiquete.areaHa)||0,capacidade:Number(formPiquete.capacidade)||0});setModal(null);setFormPiquete(blankPiquete);}
-  async function salvarEditPiquete(){await updatePiquete(sel.id,{...formPiquete,areaHa:Number(formPiquete.areaHa)||0,capacidade:Number(formPiquete.capacidade)||0});setModal(null);}
-  async function confirmarDelPiquete(){await removePiquete(sel.id);setModal(null);}
+  function piquetePayload(){
+    return {
+      nome:(formPiquete.nome||'').trim(),
+      sedeId:formPiquete.sedeId||sedes[0]?.id||'',
+      areaHa:Number(formPiquete.areaHa)||0,
+      capacidade:Number(formPiquete.capacidade)||0,
+      obs:formPiquete.obs||''
+    }
+  }
+  async function salvarNovoPiquete(){
+    const obj=piquetePayload()
+    if(!obj.nome){alert('Informe o nome do piquete.');return}
+    if(!obj.sedeId){alert('Selecione uma sede/fazenda antes de criar o piquete.');return}
+    try{
+      await addPiquete({id:genId(),...obj})
+      setModal(null);setFormPiquete({...blankPiquete,sedeId:sedes[0]?.id||''})
+    }catch(err){alert('Erro ao criar piquete: '+(err?.message||err))}
+  }
+  async function salvarEditPiquete(){
+    const obj=piquetePayload()
+    if(!obj.nome){alert('Informe o nome do piquete.');return}
+    if(!obj.sedeId){alert('Selecione uma sede/fazenda antes de salvar.');return}
+    try{
+      await updatePiquete(sel.id,obj)
+      setModal(null)
+    }catch(err){alert('Erro ao salvar piquete: '+(err?.message||err))}
+  }
+  async function confirmarDelPiquete(){
+    try{
+      await removePiquete(sel.id)
+      setModal(null)
+    }catch(err){alert('Erro ao excluir piquete: '+(err?.message||err))}
+  }
   const animalSel=animais.find(a=>a.id===movForm.animalId)
   async function salvarMov(){
     if(!movForm.animalId||!movForm.sedeDestId||!movForm.data)return
@@ -1247,8 +1277,8 @@ function Sedes({user}){
       </div>
       <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}><Btn v='gh' onClick={()=>setModal(null)}>Cancelar</Btn>{!hasAnim&&<Btn v='r' onClick={confirmarDel}>Excluir Sede</Btn>}</div>
     </Modal>}
-    {modal==='new_piquete'&&<Modal title='Novo Piquete' onClose={()=>setModal(null)}>{piqueteForm}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovoPiquete} label='Criar Piquete' disabled={!formPiquete.nome||!formPiquete.sedeId}/></Modal>}
-    {modal==='edit_piquete'&&sel&&<Modal title={'Editar Piquete: '+sel.nome} onClose={()=>setModal(null)}>{piqueteForm}<MFooter onCancel={()=>setModal(null)} onSave={salvarEditPiquete} label='Salvar Piquete' disabled={!formPiquete.nome||!formPiquete.sedeId}/></Modal>}
+    {modal==='new_piquete'&&<Modal title='Novo Piquete' onClose={()=>setModal(null)}>{piqueteForm}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovoPiquete} label='Criar Piquete' disabled={!formPiquete.nome}/></Modal>}
+    {modal==='edit_piquete'&&sel&&<Modal title={'Editar Piquete: '+sel.nome} onClose={()=>setModal(null)}>{piqueteForm}<MFooter onCancel={()=>setModal(null)} onSave={salvarEditPiquete} label='Salvar Piquete' disabled={!formPiquete.nome}/></Modal>}
     {modal==='delete_piquete'&&sel&&<Modal title='Excluir Piquete' onClose={()=>setModal(null)}>
       <div style={{background:hasAnimPiquete?R+'15':CARD2,border:'1px solid '+(hasAnimPiquete?R:B),borderRadius:10,padding:16,marginBottom:18}}>
         {hasAnimPiquete?<><div style={{color:R,fontWeight:700,marginBottom:6}}>Nao e possivel excluir</div><div style={{color:D1,fontSize:13}}>{sel.nome} possui animais. Mova os animais para outro piquete antes.</div></>:<><div style={{color:TX,fontWeight:700,marginBottom:6}}>Confirmar exclusao</div><div style={{color:D1,fontSize:13}}>Excluir o piquete {sel.nome}?</div></>}
