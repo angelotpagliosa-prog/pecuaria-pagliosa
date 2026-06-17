@@ -180,17 +180,20 @@ function Dashboard({animais,financeiro,estoque,manejos,agenda,sedes}){
 // ── REBANHO ───────────────────────────────────────────────
 function Rebanho({sedes,user}){
   const {rows,loading,add,update,remove,setRows}=useTable('animais')
+  const {rows:piquetes}=useTable('piquetes')
   const [modal,setModal]=useState(null)
   const [sel,setSel]=useState(null)
   const [filt,setFilt]=useState(''),[fSede,setFSede]=useState(''),[fStatus,setFStatus]=useState('')
+  const [fPiquete,setFPiquete]=useState('')
   const [fEspecie,setFEspecie]=useState('')
   const [selected,setSelected]=useState([])
-  const [bulk,setBulk]=useState({especie:'',status:'',categoria:'',sedeId:''})
+  const [bulk,setBulk]=useState({especie:'',status:'',categoria:'',sedeId:'',piqueteId:''})
   const [brinco,setBrinco]=useState(''),[nome,setNome]=useState(''),[raca,setRaca]=useState('Charolês')
   const [especie,setEspecie]=useState('Bovino')
   const [sexo,setSexo]=useState('M'),[nasc,setNasc]=useState(''),[peso,setPeso]=useState('')
   const [status,setStatus]=useState('Ativo'),[categoria,setCategoria]=useState('Touro')
   const [sedeId,setSedeId]=useState(sedes[0]?.id||''),[pai,setPai]=useState(''),[mae,setMae]=useState('')
+  const [piqueteId,setPiqueteId]=useState('')
 
   const especieOpts=['Bovino','Caprino','Ovino'].map(e=>({v:e,l:e}))
   const racasPorEspecie={Bovino:['Charolês','Caracu','Tabapuã','Nelore','Braford','Brangus','Angus','Hereford','Simmental','Outro'],Caprino:['Boer','Outro'],Ovino:['Texel','Suffolk','Outro']}
@@ -204,14 +207,15 @@ function Rebanho({sedes,user}){
     setRaca(racas.includes(raca)?raca:racas[0])
     setCategoria(cats.includes(categoria)?categoria:cats[0])
   }
-  function reset(){setBrinco('');setNome('');setEspecie('Bovino');setRaca('Charolês');setSexo('M');setNasc('');setPeso('');setStatus('Ativo');setCategoria('Touro');setSedeId(sedes[0]?.id||'');setPai('');setMae('');}
-  function loadF(a){const esp=a.especie||'Bovino';setBrinco(a.brinco);setNome(a.nome||'');setEspecie(esp);setRaca(a.raca||((racasPorEspecie[esp]||racasPorEspecie.Bovino)[0]));setSexo(a.sexo);setNasc(a.nascimento||'');setPeso(String(a.peso||''));setStatus(a.status);setCategoria(a.categoria||((categoriasPorEspecie[esp]||categoriasPorEspecie.Bovino)[0]));setSedeId(a.sedeId||'');setPai(a.pai||'');setMae(a.mae||'');}
-  function buildObj(){return {brinco,nome,especie,raca,sexo,nascimento:nasc,peso:Number(peso),status,categoria,sedeId,pai,mae};}
+  function changeSede(v){setSedeId(v);if(!piquetes.some(p=>p.id===piqueteId&&p.sedeId===v))setPiqueteId('');}
+  function reset(){setBrinco('');setNome('');setEspecie('Bovino');setRaca('Charolês');setSexo('M');setNasc('');setPeso('');setStatus('Ativo');setCategoria('Touro');setSedeId(sedes[0]?.id||'');setPiqueteId('');setPai('');setMae('');}
+  function loadF(a){const esp=a.especie||'Bovino';setBrinco(a.brinco);setNome(a.nome||'');setEspecie(esp);setRaca(a.raca||((racasPorEspecie[esp]||racasPorEspecie.Bovino)[0]));setSexo(a.sexo);setNasc(a.nascimento||'');setPeso(String(a.peso||''));setStatus(a.status);setCategoria(a.categoria||((categoriasPorEspecie[esp]||categoriasPorEspecie.Bovino)[0]));setSedeId(a.sedeId||'');setPiqueteId(a.piqueteId||'');setPai(a.pai||'');setMae(a.mae||'');}
+  function buildObj(){return {brinco,nome,especie,raca,sexo,nascimento:nasc,peso:Number(peso),status,categoria,sedeId,piqueteId:piqueteId||null,pai,mae};}
 
   const statusAtivos=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
   const statusCores={Ativo:G,Prenha:'#34d399','Não Pronta':R,TEF:PU,Inseminada:BL,'Monta Natural':Y,Vendido:'#fb923c',Morto:D2}
   const catColors={Terneiro:BL,Sobreano:'#34d399',Matriz:'#f472b6',Novilha:PU,Touro:Y,Descarte:R,Fêmea:'#f472b6',Reprodutor:Y,'Carneiro Reprodutor':Y,Borrego:BL}
-  const lista=rows.filter(a=>(filt===''||a.brinco?.includes(filt)||a.nome?.toLowerCase().includes(filt.toLowerCase()))&&(fSede===''||a.sedeId===fSede)&&(fStatus===''||fStatus==='ativo_todos'||a.status===fStatus)&&(fEspecie===''||(a.especie||'Bovino')===fEspecie))
+  const lista=rows.filter(a=>(filt===''||a.brinco?.includes(filt)||a.nome?.toLowerCase().includes(filt.toLowerCase()))&&(fSede===''||a.sedeId===fSede)&&(fPiquete===''||a.piqueteId===fPiquete)&&(fStatus===''||fStatus==='ativo_todos'||a.status===fStatus)&&(fEspecie===''||(a.especie||'Bovino')===fEspecie))
   const listaFiltrada=fStatus==='ativo_todos'?lista.filter(a=>statusAtivos.includes(a.status)):lista
   const visibleIds=listaFiltrada.map(a=>a.id)
   const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
@@ -234,6 +238,8 @@ function Rebanho({sedes,user}){
     if(bulk.status)obj.status=bulk.status
     if(bulk.categoria)obj.categoria=bulk.categoria
     if(bulk.sedeId)obj.sedeId=bulk.sedeId
+    if(bulk.piqueteId==='__sem__')obj.piqueteId=null
+    else if(bulk.piqueteId)obj.piqueteId=bulk.piqueteId
     if(Object.keys(obj).length===0||selected.length===0)return
     const ids=[...selected]
     const {data,error}=await sb.from('animais').update(obj).in('id',ids).select()
@@ -243,7 +249,7 @@ function Rebanho({sedes,user}){
       return ids.includes(r.id)?(novo||{...r,...obj}):r
     }))
     setSelected([])
-    setBulk({especie:'',status:'',categoria:'',sedeId:''})
+    setBulk({especie:'',status:'',categoria:'',sedeId:'',piqueteId:''})
     setModal(null)
   }
   async function excluirSelecionados(){
@@ -259,10 +265,13 @@ function Rebanho({sedes,user}){
   function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
 
   const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
+  const piqueteOpts=[{v:'',l:'Sem piquete'},...piquetes.filter(p=>!sedeId||p.sedeId===sedeId).map(p=>({v:p.id,l:p.nome}))]
+  const filtroPiquetes=piquetes.filter(p=>!fSede||p.sedeId===fSede)
   const bulkStatusOpts=[{v:'',l:'Manter status atual'},...['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural','Vendido','Morto'].map(s=>({v:s,l:s}))]
   const bulkEspecieOpts=[{v:'',l:'Manter espécie atual'},...especieOpts]
   const bulkCatOpts=[{v:'',l:'Manter categoria atual'},...[...new Set(Object.values(categoriasPorEspecie).flat())].map(c=>({v:c,l:c}))]
   const bulkSedeOpts=[{v:'',l:'Manter sede atual'},...sedeOpts]
+  const bulkPiqueteOpts=[{v:'',l:'Manter piquete atual'},{v:'__sem__',l:'Sem piquete'},...piquetes.filter(p=>!bulk.sedeId||p.sedeId===bulk.sedeId).map(p=>{const s=sedes.find(x=>x.id===p.sedeId);return {v:p.id,l:p.nome+(s?' - '+s.nome:'')}})]
   const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   const formBody=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Brinco' value={brinco} onChange={setBrinco}/><Inp label='Nome' value={nome} onChange={setNome}/></div>
@@ -270,14 +279,15 @@ function Rebanho({sedes,user}){
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Categoria' value={categoria} onChange={setCategoria} opts={categoriaOpts}/><Inp label='Status' value={status} onChange={setStatus} opts={['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural','Vendido','Morto'].map(s=>({v:s,l:s}))}/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Nascimento' value={nasc} onChange={setNasc} type='date'/><Inp label='Peso (kg)' value={peso} onChange={setPeso} type='number'/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Pai' value={pai} onChange={setPai}/><Inp label='Mae' value={mae} onChange={setMae}/></div>
-    <Inp label='Sede' value={sedeId} onChange={setSedeId} opts={sedeOpts}/>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Sede' value={sedeId} onChange={changeSede} opts={sedeOpts}/><Inp label='Piquete' value={piqueteId} onChange={setPiqueteId} opts={piqueteOpts}/></div>
   </div>
 
   return <div>
     <SH title='🐂 Rebanho' action={canEdit&&<Btn onClick={()=>{reset();setModal('new')}}>+ Novo Animal</Btn>}/>
     <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
       <input value={filt} onChange={e=>setFilt(e.target.value)} placeholder='Buscar brinco ou nome...' style={{flex:1,minWidth:160,background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',color:TX,fontSize:13,outline:'none'}}/>
-      <select value={fSede} onChange={e=>setFSede(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todas as sedes</option>{sedes.map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}</select>
+      <select value={fSede} onChange={e=>{setFSede(e.target.value);setFPiquete('');}} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todas as sedes</option>{sedes.map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}</select>
+      <select value={fPiquete} onChange={e=>setFPiquete(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todos os piquetes</option>{filtroPiquetes.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}</select>
       <select value={fEspecie} onChange={e=>setFEspecie(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todas as espécies</option>{['Bovino','Caprino','Ovino'].map(e=><option key={e} value={e}>{e}</option>)}</select>
       <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}>
         <option value=''>Todos os status</option>
@@ -291,15 +301,15 @@ function Rebanho({sedes,user}){
     {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
       <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} animal(is) selecionado(s)</div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-        <Btn v='g' small onClick={()=>{setBulk({especie:'',status:'',categoria:'',sedeId:''});setModal('bulk')}}>Aplicar em lote</Btn>
+        <Btn v='g' small onClick={()=>{setBulk({especie:'',status:'',categoria:'',sedeId:'',piqueteId:''});setModal('bulk')}}>Aplicar em lote</Btn>
         <Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn>
       </div>
     </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
-          <thead><tr><Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th><Th>Brinco</Th><Th>Nome</Th><Th>Espécie</Th><Th>Categoria</Th><Th>Raca</Th><Th>Sexo</Th><Th>Nascimento</Th><Th>Peso</Th><Th>Sede</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
-          <tbody>{listaFiltrada.map(a=>{const sede=sedes.find(s=>s.id===a.sedeId);const sc=statusCores[a.status]||D1;const marcado=selected.includes(a.id);const esp=a.especie||'Bovino';return <TR key={a.id}><Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(a.id)} style={checkStyle}/></Td><Td s={{fontWeight:800,color:Y}}>{a.brinco}</Td><Td s={{fontWeight:600}}>{a.nome||'-'}</Td><Td><Badge label={esp} color={esp==='Caprino'?G:esp==='Ovino'?BL:Y}/></Td><Td><Badge label={a.categoria||'-'} color={catColors[a.categoria]||D1}/></Td><Td>{a.raca}</Td><Td>{a.sexo==='M'?'Macho':'Femea'}</Td><Td s={{color:D1}}>{fmtDate(a.nascimento)}</Td><Td s={{fontWeight:700}}>{a.peso?a.peso+' kg':'-'}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td><Badge label={a.status} color={sc} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(a);loadF(a);setModal('edit');}} onDel={()=>{setSel(a);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:980}}>
+          <thead><tr><Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th><Th>Brinco</Th><Th>Nome</Th><Th>Espécie</Th><Th>Categoria</Th><Th>Raca</Th><Th>Sexo</Th><Th>Nascimento</Th><Th>Peso</Th><Th>Sede</Th><Th>Piquete</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
+          <tbody>{listaFiltrada.map(a=>{const sede=sedes.find(s=>s.id===a.sedeId);const piq=piquetes.find(p=>p.id===a.piqueteId);const sc=statusCores[a.status]||D1;const marcado=selected.includes(a.id);const esp=a.especie||'Bovino';return <TR key={a.id}><Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(a.id)} style={checkStyle}/></Td><Td s={{fontWeight:800,color:Y}}>{a.brinco}</Td><Td s={{fontWeight:600}}>{a.nome||'-'}</Td><Td><Badge label={esp} color={esp==='Caprino'?G:esp==='Ovino'?BL:Y}/></Td><Td><Badge label={a.categoria||'-'} color={catColors[a.categoria]||D1}/></Td><Td>{a.raca}</Td><Td>{a.sexo==='M'?'Macho':'Femea'}</Td><Td s={{color:D1}}>{fmtDate(a.nascimento)}</Td><Td s={{fontWeight:700}}>{a.peso?a.peso+' kg':'-'}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td>{piq?<Badge label={piq.nome} color={G}/>:<span style={{color:D2,fontSize:12}}>-</span>}</Td><Td><Badge label={a.status} color={sc} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(a);loadF(a);setModal('edit');}} onDel={()=>{setSel(a);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {listaFiltrada.length===0&&<Empty/>}
       </div>}
@@ -313,8 +323,9 @@ function Rebanho({sedes,user}){
         <Inp label='Espécie' value={bulk.especie} onChange={v=>setBulk(p=>({...p,especie:v}))} opts={bulkEspecieOpts}/>
         <Inp label='Status' value={bulk.status} onChange={v=>setBulk(p=>({...p,status:v}))} opts={bulkStatusOpts}/>
         <Inp label='Categoria' value={bulk.categoria} onChange={v=>setBulk(p=>({...p,categoria:v}))} opts={bulkCatOpts}/>
-        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={bulkSedeOpts}/>
-        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.especie&&!bulk.status&&!bulk.categoria&&!bulk.sedeId}/>
+        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v,piqueteId:''}))} opts={bulkSedeOpts}/>
+        <Inp label='Piquete' value={bulk.piqueteId} onChange={v=>setBulk(p=>({...p,piqueteId:v}))} opts={bulkPiqueteOpts}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.especie&&!bulk.status&&!bulk.categoria&&!bulk.sedeId&&!bulk.piqueteId}/>
       </div>
     </Modal>}
     {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}>
@@ -1143,39 +1154,69 @@ function Sedes({user}){
   const {rows:estoque}=useTable('estoque')
   const {rows:agenda}=useTable('agenda')
   const {rows:manejos}=useTable('manejos')
+  const {rows:piquetes,add:addPiquete,update:updatePiquete,remove:removePiquete}=useTable('piquetes')
   const [tab,setTab]=useState('sedes'),[modal,setModal]=useState(null),[sel,setSel]=useState(null)
   const [form,setForm]=useState({nome:'',cidade:'',estado:'PR'})
+  const blankPiquete={nome:'',sedeId:sedes[0]?.id||'',areaHa:'',capacidade:'',obs:''}
+  const [formPiquete,setFormPiquete]=useState(blankPiquete)
   const ff=v=>setForm(p=>({...p,...v}))
+  const fp=v=>setFormPiquete(p=>({...p,...v}))
   const blankMov={animalId:'',sedeDestId:'',data:'',motivo:''}
   const [movForm,setMovForm]=useState(blankMov)
   const hasAnim=sel&&animais.some(a=>a.sedeId===sel.id)
+  const hasAnimPiquete=sel&&animais.some(a=>a.piqueteId===sel.id)
+  const canManage=user.perfil!=='funcionario'
   async function salvarNova(){await add({id:genId(),...form});setModal(null);setForm({nome:'',cidade:'',estado:'PR'});}
   async function salvarEdit(){await update(sel.id,form);setModal(null);}
   async function confirmarDel(){await remove(sel.id);setModal(null);}
+  async function salvarNovoPiquete(){await addPiquete({id:genId(),...formPiquete,areaHa:Number(formPiquete.areaHa)||0,capacidade:Number(formPiquete.capacidade)||0});setModal(null);setFormPiquete(blankPiquete);}
+  async function salvarEditPiquete(){await updatePiquete(sel.id,{...formPiquete,areaHa:Number(formPiquete.areaHa)||0,capacidade:Number(formPiquete.capacidade)||0});setModal(null);}
+  async function confirmarDelPiquete(){await removePiquete(sel.id);setModal(null);}
   const animalSel=animais.find(a=>a.id===movForm.animalId)
   async function salvarMov(){
     if(!movForm.animalId||!movForm.sedeDestId||!movForm.data)return
     const orig=animalSel?.sedeId
     if(orig===movForm.sedeDestId)return
     const mov={id:genId(),animalId:movForm.animalId,sedeOrigId:orig,sedeDestId:movForm.sedeDestId,data:movForm.data,motivo:movForm.motivo}
-    await sb.from('animais').update({sedeId:movForm.sedeDestId}).eq('id',movForm.animalId)
+    await sb.from('animais').update({sedeId:movForm.sedeDestId,piqueteId:null}).eq('id',movForm.animalId)
     await addMov(mov)
     setMovForm(blankMov)
   }
   const sedeForm=<div style={{display:'flex',flexDirection:'column',gap:13}}><Inp label='Nome da Sede' value={form.nome} onChange={v=>ff({nome:v})}/><div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}><Inp label='Cidade' value={form.cidade} onChange={v=>ff({cidade:v})}/><Inp label='Estado' value={form.estado} onChange={v=>ff({estado:v})}/></div></div>
+  const piqueteForm=<div style={{display:'flex',flexDirection:'column',gap:13}}>
+    <Inp label='Nome do Piquete' value={formPiquete.nome} onChange={v=>fp({nome:v})} ph='Ex: Piquete 1, Campo Norte'/>
+    <Inp label='Sede / Fazenda' value={formPiquete.sedeId} onChange={v=>fp({sedeId:v})} opts={sedes.map(s=>({v:s.id,l:s.nome}))}/>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Area (ha)' value={formPiquete.areaHa} onChange={v=>fp({areaHa:v})} type='number'/><Inp label='Capacidade de Animais' value={formPiquete.capacidade} onChange={v=>fp({capacidade:v})} type='number'/></div>
+    <Inp label='Observacoes' value={formPiquete.obs} onChange={v=>fp({obs:v})} ph='Ex: agua, sombra, sal, potreiro de inverno'/>
+  </div>
   if(loading)return <Loading/>
   return <div>
-    <SH title='🗺️ Sedes e Localidades' action={user.perfil==='admin'&&tab==='sedes'&&<Btn onClick={()=>setModal('new')}>+ Nova Sede</Btn>}/>
-    <div style={{display:'flex',gap:6,marginBottom:20}}>{[['sedes','Sedes'],['movimentacoes','Movimentacoes']].map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'7px 18px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:13,cursor:'pointer'}}>{t[1]}</button>)}</div>
+    <SH title='🗺️ Sedes e Localidades' action={(user.perfil==='admin'&&tab==='sedes'&&<Btn onClick={()=>setModal('new')}>+ Nova Sede</Btn>)||(canManage&&tab==='piquetes'&&<Btn onClick={()=>{setSel(null);setFormPiquete({...blankPiquete,sedeId:sedes[0]?.id||''});setModal('new_piquete')}}>+ Novo Piquete</Btn>)}/>
+    <div style={{display:'flex',gap:6,marginBottom:20}}>{[['sedes','Sedes'],['piquetes','Piquetes'],['movimentacoes','Movimentacoes']].map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'7px 18px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:13,cursor:'pointer'}}>{t[1]}</button>)}</div>
     {tab==='sedes'&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(270px,1fr))',gap:16}}>
       {sedes.map(s=>{  const statusAtivo=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
-  const an=animais.filter(a=>a.sedeId===s.id).length,es=estoque.filter(e=>e.sedeId===s.id).length,ag=agenda.filter(a=>a.sedeId===s.id&&a.status==='pendente').length,ma=manejos.filter(m=>m.sedeId===s.id).length;return <div key={s.id} style={{background:CARD,border:'1px solid '+B,borderRadius:14,padding:22,borderTop:'3px solid '+Y}}>
+  const an=animais.filter(a=>a.sedeId===s.id).length,pi=piquetes.filter(p=>p.sedeId===s.id).length,es=estoque.filter(e=>e.sedeId===s.id).length,ag=agenda.filter(a=>a.sedeId===s.id&&a.status==='pendente').length,ma=manejos.filter(m=>m.sedeId===s.id).length;return <div key={s.id} style={{background:CARD,border:'1px solid '+B,borderRadius:14,padding:22,borderTop:'3px solid '+Y}}>
         <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:14}}>
           <div style={{display:'flex',alignItems:'center',gap:11}}><div style={{width:42,height:42,borderRadius:10,background:Y+'18',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22}}>🏡</div><div><div style={{color:TX,fontWeight:800,fontSize:15}}>{s.nome}</div><div style={{color:D2,fontSize:12,marginTop:2}}>{s.cidade}, {s.estado}</div></div></div>
           {user.perfil==='admin'&&<div style={{display:'flex',gap:6,flexShrink:0}}><button onClick={()=>{setSel(s);setForm({nome:s.nome,cidade:s.cidade,estado:s.estado});setModal('edit');}} style={{background:CARD2,border:'1px solid '+B,borderRadius:7,padding:'5px 10px',cursor:'pointer',color:D1,fontSize:13}}>✏️</button><button onClick={()=>{setSel(s);setModal('delete');}} style={{background:R+'15',border:'1px solid '+R+'30',borderRadius:7,padding:'5px 10px',cursor:'pointer',color:R,fontSize:13}}>🗑️</button></div>}
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:9}}>{[[an,'Animais',Y],[es,'Insumos',PU],[ag,'Tarefas',BL],[ma,'Manejos',G]].map(([n,l,c])=><div key={l} style={{background:CARD2,borderRadius:8,padding:'10px 12px',border:'1px solid '+B}}><div style={{color:c,fontWeight:800,fontSize:20}}>{n}</div><div style={{color:D2,fontSize:11,marginTop:2}}>{l}</div></div>)}</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:9}}>{[[an,'Animais',Y],[pi,'Piquetes',G],[es,'Insumos',PU],[ag,'Tarefas',BL],[ma,'Manejos',G]].map(([n,l,c])=><div key={l} style={{background:CARD2,borderRadius:8,padding:'10px 12px',border:'1px solid '+B}}><div style={{color:c,fontWeight:800,fontSize:20}}>{n}</div><div style={{color:D2,fontSize:11,marginTop:2}}>{l}</div></div>)}</div>
       </div>})}
+    </div>}
+    {tab==='piquetes'&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:16}}>
+      {piquetes.map(p=>{const sede=sedes.find(s=>s.id===p.sedeId);const an=animais.filter(a=>a.piqueteId===p.id);const cap=Number(p.capacidade||0);const pct=cap>0?Math.min((an.length/cap)*100,100):0;const lotado=cap>0&&an.length>=cap;return <div key={p.id} style={{background:CARD,border:'1px solid '+B,borderRadius:14,padding:20,borderTop:'3px solid '+(lotado?R:G)}}>
+        <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',marginBottom:14}}>
+          <div><div style={{color:TX,fontWeight:800,fontSize:16}}>{p.nome}</div><div style={{color:D2,fontSize:12,marginTop:3}}>{sede?.nome||'-'}</div></div>
+          {canManage&&<div style={{display:'flex',gap:6,flexShrink:0}}><button onClick={()=>{setSel(p);setFormPiquete({nome:p.nome||'',sedeId:p.sedeId||sedes[0]?.id||'',areaHa:String(p.areaHa||''),capacidade:String(p.capacidade||''),obs:p.obs||''});setModal('edit_piquete');}} style={{background:CARD2,border:'1px solid '+B,borderRadius:7,padding:'5px 10px',cursor:'pointer',color:D1,fontSize:13}}>✏️</button><button onClick={()=>{setSel(p);setModal('delete_piquete');}} style={{background:R+'15',border:'1px solid '+R+'30',borderRadius:7,padding:'5px 10px',cursor:'pointer',color:R,fontSize:13}}>🗑️</button></div>}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:9,marginBottom:12}}>
+          {[[an.length,'Animais',Y],[p.areaHa?Number(p.areaHa).toLocaleString('pt-BR'):'-','ha',BL],[cap||'-','Capacidade',PU]].map(([n,l,c])=><div key={l} style={{background:CARD2,borderRadius:8,padding:'10px 12px',border:'1px solid '+B}}><div style={{color:c,fontWeight:800,fontSize:18}}>{n}</div><div style={{color:D2,fontSize:10,marginTop:2}}>{l}</div></div>)}
+        </div>
+        {cap>0&&<div style={{marginBottom:12}}><div style={{display:'flex',justifyContent:'space-between',color:D2,fontSize:11,marginBottom:5}}><span>Ocupacao</span><span>{Math.round(pct)}%</span></div><div style={{background:B,borderRadius:5,height:7}}><div style={{background:lotado?R:G,width:pct+'%',height:'100%',borderRadius:5}}/></div></div>}
+        {p.obs&&<div style={{color:D2,fontSize:12,lineHeight:1.45}}>{p.obs}</div>}
+        {an.length>0&&<div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:12}}>{an.slice(0,8).map(a=><Badge key={a.id} label={a.brinco} color={Y}/>) }{an.length>8&&<Badge label={'+'+(an.length-8)} color={D1}/>}</div>}
+      </div>})}
+      {piquetes.length===0&&<div style={{gridColumn:'1/-1'}}><Empty msg='Nenhum piquete cadastrado. Crie subdivisoes para separar os animais dentro da mesma sede.'/></div>}
     </div>}
     {tab==='movimentacoes'&&<div style={{display:'grid',gridTemplateColumns:'300px 1fr',gap:18,alignItems:'start'}}>
       <div style={{background:CARD,border:'1px solid '+B,borderRadius:12,padding:20}}>
@@ -1205,6 +1246,14 @@ function Sedes({user}){
         {hasAnim?<><div style={{color:R,fontWeight:700,marginBottom:6}}>Nao e possivel excluir</div><div style={{color:D1,fontSize:13}}>{sel.nome} possui animais. Transfira-os antes.</div></>:<><div style={{color:TX,fontWeight:700,marginBottom:6}}>Confirmar exclusao</div><div style={{color:D1,fontSize:13}}>Excluir {sel.nome}?</div></>}
       </div>
       <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}><Btn v='gh' onClick={()=>setModal(null)}>Cancelar</Btn>{!hasAnim&&<Btn v='r' onClick={confirmarDel}>Excluir Sede</Btn>}</div>
+    </Modal>}
+    {modal==='new_piquete'&&<Modal title='Novo Piquete' onClose={()=>setModal(null)}>{piqueteForm}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovoPiquete} label='Criar Piquete' disabled={!formPiquete.nome||!formPiquete.sedeId}/></Modal>}
+    {modal==='edit_piquete'&&sel&&<Modal title={'Editar Piquete: '+sel.nome} onClose={()=>setModal(null)}>{piqueteForm}<MFooter onCancel={()=>setModal(null)} onSave={salvarEditPiquete} label='Salvar Piquete' disabled={!formPiquete.nome||!formPiquete.sedeId}/></Modal>}
+    {modal==='delete_piquete'&&sel&&<Modal title='Excluir Piquete' onClose={()=>setModal(null)}>
+      <div style={{background:hasAnimPiquete?R+'15':CARD2,border:'1px solid '+(hasAnimPiquete?R:B),borderRadius:10,padding:16,marginBottom:18}}>
+        {hasAnimPiquete?<><div style={{color:R,fontWeight:700,marginBottom:6}}>Nao e possivel excluir</div><div style={{color:D1,fontSize:13}}>{sel.nome} possui animais. Mova os animais para outro piquete antes.</div></>:<><div style={{color:TX,fontWeight:700,marginBottom:6}}>Confirmar exclusao</div><div style={{color:D1,fontSize:13}}>Excluir o piquete {sel.nome}?</div></>}
+      </div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}><Btn v='gh' onClick={()=>setModal(null)}>Cancelar</Btn>{!hasAnimPiquete&&<Btn v='r' onClick={confirmarDelPiquete}>Excluir Piquete</Btn>}</div>
     </Modal>}
   </div>
 }
@@ -1280,18 +1329,19 @@ function ExcelPanel({sedes}){
   const {rows:financeiro}=useTable('financeiro')
   const {rows:estoque}=useTable('estoque')
   const {rows:clientes}=useTable('clientes')
+  const {rows:piquetes}=useTable('piquetes')
   const fileRef=useRef(null)
   const [importTab,setImportTab]=useState('animais'),[importMsg,setImportMsg]=useState(null),[preview,setPreview]=useState(null)
   function exportSheet(name,data,file){const ws=XLSX.utils.json_to_sheet(data);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,name);XLSX.writeFile(wb,file+'.xlsx');}
-  function exportAnimais(){exportSheet('Rebanho',animais.map(a=>{const s=sedes.find(x=>x.id===a.sedeId)||{nome:''};return {Brinco:a.brinco,Nome:a.nome||'',Especie:a.especie||'Bovino',Categoria:a.categoria||'',Raca:a.raca,Sexo:a.sexo,Nascimento:a.nascimento||'',Peso:a.peso||'',Status:a.status,Sede:s.nome};}),'PecuarIA_Rebanho');}
+  function exportAnimais(){exportSheet('Rebanho',animais.map(a=>{const s=sedes.find(x=>x.id===a.sedeId)||{nome:''};const p=piquetes.find(x=>x.id===a.piqueteId)||{nome:''};return {Brinco:a.brinco,Nome:a.nome||'',Especie:a.especie||'Bovino',Categoria:a.categoria||'',Raca:a.raca,Sexo:a.sexo,Nascimento:a.nascimento||'',Peso:a.peso||'',Status:a.status,Sede:s.nome,Piquete:p.nome};}),'PecuarIA_Rebanho');}
   function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Categoria:f.categoria||'',Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Vencimento:f.vencimento||'',Status_Pagamento:f.statusPagamento||'pago',Forma_Pagamento:f.formaPagamento||'',Codigo_Boleto:f.codigoBoleto||'',Parcela_Numero:f.parcelaNumero||1,Parcela_Total:f.parcelaTotal||1,Grupo_Parcelas:f.parcelaGrupoId||'',Propriedade:f.propriedadeDestino||'',Km_Rodados:f.kmRodados||'',Valor_Km:f.valorKm||'',Cliente:c.nome||''};}),'PecuarIA_Financeiro');}
   function exportEst(){exportSheet('Estoque',estoque.map(e=>{const s=sedes.find(x=>x.id===e.sedeId)||{nome:''};return {Nome:e.nome,Categoria:e.categoria,Quantidade:e.quantidade,Unidade:e.unidade,Minimo:e.minimo,Sede:s.nome};}),'PecuarIA_Estoque');}
   function downloadTemplate(tipo){
     const tpls={
-      animais:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Nascimento:'2024-08-20',Peso:65,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Nascimento:'2025-01-12',Peso:42,Status:'Ativo',Sede:'Sede Principal'}],
+      animais:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal',Piquete:'Piquete 1'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Nascimento:'2024-08-20',Peso:65,Status:'Ativo',Sede:'Sede Principal',Piquete:'Piquete 2'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Nascimento:'2025-01-12',Peso:42,Status:'Ativo',Sede:'Sede Principal',Piquete:'Piquete 2'}],
       financeiro:[{Tipo:'despesa',Categoria:'Medicamentos',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'Pix',Codigo_Boleto:'',Parcela_Numero:1,Parcela_Total:1,Grupo_Parcelas:'',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Sal',Descricao:'Boleto sal mineral (1/3)',Valor:933.33,Data:'2026-05-02',Vencimento:'2026-05-20',Status_Pagamento:'pendente',Forma_Pagamento:'Boleto',Codigo_Boleto:'00000.00000 00000.000000 00000.000000 0 00000000000000',Parcela_Numero:1,Parcela_Total:3,Grupo_Parcelas:'compra-sal-maio',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Sal',Descricao:'Boleto sal mineral (2/3)',Valor:933.33,Data:'2026-05-02',Vencimento:'2026-06-20',Status_Pagamento:'pendente',Forma_Pagamento:'Boleto',Codigo_Boleto:'',Parcela_Numero:2,Parcela_Total:3,Grupo_Parcelas:'compra-sal-maio',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Deslocamento/Entrega',Descricao:'Ida para propriedade - entrega de sal e medicamentos',Valor:280,Data:'2026-05-02',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'',Codigo_Boleto:'',Parcela_Numero:1,Parcela_Total:1,Grupo_Parcelas:'',Propriedade:'Sede Principal',Km_Rodados:112,Valor_Km:2.5,Cliente:''}],
       estoque:[{Nome:'Ivermectina 1%',Categoria:'Antiparasitário',Quantidade:50,Unidade:'mL',Minimo:10,Sede:'Sede Principal'}],
-      manejos:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charoles',Sexo:'M',Peso:820,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85,Obs:'Dose individual'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Peso:65,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20,Obs:'Animal novo sera criado se nao existir'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Peso:42,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Vermifugo',Quantidade:3,Unidade:'mL',Valor_Unit:0.95,Obs:'Tambem aceita ovinos e caprinos'}],
+      manejos:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charoles',Sexo:'M',Peso:820,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Piquete:'Piquete 1',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85,Obs:'Dose individual'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Peso:65,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Piquete:'Piquete 2',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20,Obs:'Animal novo sera criado se nao existir'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Peso:42,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Piquete:'Piquete 2',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Vermifugo',Quantidade:3,Unidade:'mL',Valor_Unit:0.95,Obs:'Tambem aceita ovinos e caprinos'}],
       vendas:[{Brinco:'2526',Data:'2026-05-10',Valor:18000,Peso:650,Comprador:'João da Silva',CPF:'000.000.000-00',Telefone:'(46) 99999-9999',Cidade:'Palmas',Estado:'PR',Obs:'GTA 1234'}]
     }
     exportSheet(tipo,tpls[tipo],'Template_'+tipo)
@@ -1302,7 +1352,7 @@ function ExcelPanel({sedes}){
     const rows=preview.rows
     try{
       if(importTab==='animais'){
-        const novos=rows.map(r=>{const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0];const especie=r.Especie||r.Espécie||'Bovino';return {id:genId(),brinco:String(r.Brinco||''),nome:r.Nome||'',especie,categoria:r.Categoria||'',raca:r.Raca||(especie==='Caprino'?'Boer':especie==='Ovino'?'Texel':'Charolês'),sexo:r.Sexo==='F'?'F':'M',nascimento:r.Nascimento||'',peso:Number(r.Peso)||0,status:r.Status||'Ativo',sedeId:sede?.id||'',pai:r.Pai||'',mae:r.Mae||''};}).filter(a=>a.brinco)
+        const novos=rows.map(r=>{const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0];const piquete=piquetes.find(p=>p.nome===r.Piquete&&p.sedeId===sede?.id);const especie=r.Especie||r.Espécie||'Bovino';return {id:genId(),brinco:String(r.Brinco||''),nome:r.Nome||'',especie,categoria:r.Categoria||'',raca:r.Raca||(especie==='Caprino'?'Boer':especie==='Ovino'?'Texel':'Charolês'),sexo:r.Sexo==='F'?'F':'M',nascimento:r.Nascimento||'',peso:Number(r.Peso)||0,status:r.Status||'Ativo',sedeId:sede?.id||'',piqueteId:piquete?.id||null,pai:r.Pai||'',mae:r.Mae||''};}).filter(a=>a.brinco)
         await sb.from('animais').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' animal(is) importado(s)!'})
       } else if(importTab==='financeiro'){
@@ -1320,10 +1370,11 @@ function ExcelPanel({sedes}){
           const brinco=String(r.Brinco||'').trim()
           if(!brinco||existentes.has(brinco)||novosAnimaisMap[brinco])return
           const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0]
+          const piquete=piquetes.find(p=>p.nome===r.Piquete&&p.sedeId===sede?.id)
           const especie=r.Especie||r.Espécie||'Bovino'
           const categoriaPadrao=especie==='Ovino'?'Borrego':especie==='Caprino'?'Fêmea':'Touro'
           const racaPadrao=especie==='Caprino'?'Boer':especie==='Ovino'?'Texel':'Outro'
-          novosAnimaisMap[brinco]={id:genId(),brinco,nome:r.Nome||'',especie,categoria:r.Categoria||categoriaPadrao,raca:r.Raca||racaPadrao,sexo:r.Sexo==='F'?'F':'M',nascimento:r.Nascimento||'',peso:Number(r.Peso)||0,status:r.Status||'Ativo',sedeId:sede?.id||'',pai:r.Pai||'',mae:r.Mae||''}
+          novosAnimaisMap[brinco]={id:genId(),brinco,nome:r.Nome||'',especie,categoria:r.Categoria||categoriaPadrao,raca:r.Raca||racaPadrao,sexo:r.Sexo==='F'?'F':'M',nascimento:r.Nascimento||'',peso:Number(r.Peso)||0,status:r.Status||'Ativo',sedeId:sede?.id||'',piqueteId:piquete?.id||null,pai:r.Pai||'',mae:r.Mae||''}
         })
         const novosAnimais=Object.values(novosAnimaisMap)
         if(novosAnimais.length)await sb.from('animais').insert(novosAnimais)
@@ -1361,7 +1412,7 @@ function ExcelPanel({sedes}){
   }
   const exportBtns=[{label:'🐂 Rebanho',fn:exportAnimais,color:Y},{label:'💰 Financeiro',fn:exportFin,color:G},{label:'📦 Estoque',fn:exportEst,color:PU}]
   const importTabs=[['animais','🐂 Rebanho'],['manejos','🩺 Manejos (Lida)'],['vendas','💲 Vendas'],['financeiro','💰 Financeiro'],['estoque','📦 Estoque']]
-  const descTab={animais:'Importe bovinos, caprinos e ovinos em massa. Baixe o template, preencha especie, categoria e raca, depois envie.',manejos:'Importe lidas por brinco, medicamento e sede. Animais novos sao cadastrados automaticamente; animais existentes recebem apenas o manejo.',vendas:'Importe vendas de animais. O status do animal vira "Vendido" e a receita é lançada no financeiro automaticamente.',financeiro:'Importe lançamentos financeiros (despesas e receitas) em lote.',estoque:'Importe itens de estoque em massa.'}
+  const descTab={animais:'Importe bovinos, caprinos e ovinos em massa. Baixe o template, preencha especie, categoria, raca, sede e piquete, depois envie.',manejos:'Importe lidas por brinco, medicamento, sede e piquete. Animais novos sao cadastrados automaticamente; animais existentes recebem apenas o manejo.',vendas:'Importe vendas de animais. O status do animal vira "Vendido" e a receita é lançada no financeiro automaticamente.',financeiro:'Importe lançamentos financeiros (despesas e receitas) em lote.',estoque:'Importe itens de estoque em massa.'}
   const card={background:CARD,border:'1px solid '+B,borderRadius:12,padding:22}
   return <div>
     <div style={{color:TX,fontWeight:800,fontSize:22,marginBottom:6}}>📂 Importar / Exportar Excel</div>

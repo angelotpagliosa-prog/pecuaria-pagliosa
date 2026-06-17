@@ -70,6 +70,7 @@ alter table public.vendas enable row level security;
 alter table public.semen_botijoes enable row level security;
 alter table public.semen_palhetas enable row level security;
 alter table public.semen_saidas enable row level security;
+alter table if exists public.piquetes enable row level security;
 
 drop policy if exists "usuarios_select_secure" on public.usuarios;
 drop policy if exists "usuarios_insert_admin" on public.usuarios;
@@ -129,18 +130,20 @@ declare
 begin
   foreach t in array array[
     'animais','reproducao','financeiro','clientes','estoque','manejos',
-    'movimentacoes','agenda','vendas','semen_botijoes','semen_palhetas','semen_saidas'
+    'movimentacoes','agenda','vendas','semen_botijoes','semen_palhetas','semen_saidas','piquetes'
   ]
   loop
-    execute format('drop policy if exists "%s_select_secure" on public.%I', t, t);
-    execute format('drop policy if exists "%s_insert_secure" on public.%I', t, t);
-    execute format('drop policy if exists "%s_update_secure" on public.%I', t, t);
-    execute format('drop policy if exists "%s_delete_secure" on public.%I', t, t);
+    if to_regclass('public.' || t) is not null then
+      execute format('drop policy if exists "%s_select_secure" on public.%I', t, t);
+      execute format('drop policy if exists "%s_insert_secure" on public.%I', t, t);
+      execute format('drop policy if exists "%s_update_secure" on public.%I', t, t);
+      execute format('drop policy if exists "%s_delete_secure" on public.%I', t, t);
 
-    execute format('create policy "%s_select_secure" on public.%I for select to authenticated using (public.app_can_read())', t, t);
-    execute format('create policy "%s_insert_secure" on public.%I for insert to authenticated with check (public.app_can_write())', t, t);
-    execute format('create policy "%s_update_secure" on public.%I for update to authenticated using (public.app_can_write()) with check (public.app_can_write())', t, t);
-    execute format('create policy "%s_delete_secure" on public.%I for delete to authenticated using (public.app_can_write())', t, t);
+      execute format('create policy "%s_select_secure" on public.%I for select to authenticated using (public.app_can_read())', t, t);
+      execute format('create policy "%s_insert_secure" on public.%I for insert to authenticated with check (public.app_can_write())', t, t);
+      execute format('create policy "%s_update_secure" on public.%I for update to authenticated using (public.app_can_write()) with check (public.app_can_write())', t, t);
+      execute format('create policy "%s_delete_secure" on public.%I for delete to authenticated using (public.app_can_write())', t, t);
+    end if;
   end loop;
 end $$;
 
