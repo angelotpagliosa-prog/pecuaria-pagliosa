@@ -23,6 +23,12 @@ function financeiroPago(f){return financeiroStatus(f)==='pago';}
 function financeiroPendente(f){return f?.tipo==='despesa'&&financeiroStatus(f)==='pendente';}
 function financeiroCancelado(f){return financeiroStatus(f)==='cancelado';}
 function sortVencimento(a,b){return String(a.vencimento||a.data||'9999-12-31').localeCompare(String(b.vencimento||b.data||'9999-12-31'));}
+function addMonthsISO(dateStr,months){
+  const base=dateStr?new Date(dateStr+'T12:00'):new Date()
+  base.setMonth(base.getMonth()+months)
+  base.setMinutes(base.getMinutes()-base.getTimezoneOffset())
+  return base.toISOString().slice(0,10)
+}
 
 // ── UI ATOMS ────────────────────────────────────────────
 function Logo({small}){
@@ -519,6 +525,7 @@ function Financeiro({clientes,user}){
   const [uploading,setUploading]=useState(false)
   const [selected,setSelected]=useState([])
   const [bulk,setBulk]=useState({tipo:'',categoria:'',data:'',clienteId:''})
+  const [parcelas,setParcelas]=useState({qtd:'1'})
   const fv=v=>setForm(p=>({...p,...v}))
   const hoje=todayISO()
   const limite7=(()=>{const d=new Date();d.setDate(d.getDate()+7);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);})()
@@ -550,6 +557,18 @@ function Financeiro({clientes,user}){
     const status=form.tipo==='despesa'?(form.statusPagamento||'pago'):'pago'
     return {...form,notaUrl,statusPagamento:status,valor:Number(form.valor),kmRodados:Number(form.kmRodados)||0,valorKm:Number(form.valorKm)||0}
   }
+  function buildParcelas(base,idBase){
+    const qtd=Math.max(1,parseInt(parcelas.qtd)||1)
+    if(qtd===1)return [{id:idBase,...base}]
+    const grupoId=genId()
+    const total=Number(base.valor)||0
+    const valorParcela=Math.round((total/qtd)*100)/100
+    const vencBase=base.vencimento||base.data||todayISO()
+    return Array.from({length:qtd},(_,i)=>{
+      const valor=i===qtd-1?Math.round((total-(valorParcela*(qtd-1)))*100)/100:valorParcela
+      return {...base,id:i===0?idBase:genId(),valor,vencimento:addMonthsISO(vencBase,i),descricao:base.descricao+' ('+(i+1)+'/'+qtd+')',codigoBoleto:i===0?base.codigoBoleto:'',parcelaGrupoId:grupoId,parcelaNumero:i+1,parcelaTotal:qtd}
+    })
+  }
   async function uploadNota(id){
     if(!notaFile)return form.notaUrl||''
     const safe=notaFile.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9._-]/g,'-')
@@ -575,7 +594,19 @@ function Financeiro({clientes,user}){
   }
   async function salvarNovo(){
     const id=genId()
-    try{setUploading(true);const notaUrl=await uploadNota(id);await add({id,...buildFinanceiro(notaUrl)});setModal(null);setForm(blank);setNotaFile(null)}
+    try{
+      setUploading(true)
+      const notaUrl=await uploadNota(id)
+      const obj=buildFinanceiro(notaUrl)
+      const regs=buildParcelas(obj,id)
+      if(regs.length===1)await add(regs[0])
+      else{
+        const {data,error}=await sb.from('financeiro').insert(regs).select()
+        if(error)throw error
+        setRows(p=>[...p,...(data||regs)])
+      }
+      setModal(null);setForm(blank);setNotaFile(null);setParcelas({qtd:'1'})
+    }
     catch(e){alert('Erro ao salvar: '+e.message)}
     finally{setUploading(false)}
   }
@@ -609,11 +640,13 @@ function Financeiro({clientes,user}){
   function abrirDespesaEntrega(){
     setForm({...blank,tipo:'despesa',categoria:'Deslocamento/Entrega',descricao:'Ida para propriedade - entrega de sal/medicamentos'})
     setNotaFile(null)
+    setParcelas({qtd:'1'})
     setModal('new')
   }
   function abrirBoleto(){
     setForm({...blank,tipo:'despesa',categoria:'Outros',descricao:'Boleto a pagar',statusPagamento:'pendente',formaPagamento:'Boleto',vencimento:todayISO()})
     setNotaFile(null)
+    setParcelas({qtd:'1'})
     setModal('new')
   }
   function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
@@ -637,6 +670,14 @@ function Financeiro({clientes,user}){
         <Inp label='Forma' value={form.formaPagamento} onChange={v=>fv({formaPagamento:v})} opts={[{v:'',l:'Nao informado'},{v:'Boleto',l:'Boleto'},{v:'Pix',l:'Pix'},{v:'Dinheiro',l:'Dinheiro'},{v:'Cartao',l:'Cartao'},{v:'Transferencia',l:'Transferencia'}]}/>
         <Inp label='Codigo / Linha Digitavel' value={form.codigoBoleto} onChange={v=>fv({codigoBoleto:v})} ph='Linha digitavel ou codigo do boleto'/>
       </div>
+      {modal==='new'&&form.statusPagamento==='pendente'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <Inp label='Quantidade de Parcelas' value={parcelas.qtd} onChange={v=>setParcelas({qtd:v})} type='number' ph='Ex: 3'/>
+        <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'10px 12px'}}>
+          <div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Valor por Parcela</div>
+          <div style={{color:Y,fontWeight:800,fontSize:18,marginTop:4}}>{fmtR((Number(form.valor)||0)/Math.max(1,parseInt(parcelas.qtd)||1))}</div>
+        </div>
+      </div>}
+      {modal==='new'&&form.statusPagamento==='pendente'&&Number(parcelas.qtd)>1&&<div style={{background:BL+'12',border:'1px solid '+BL+'35',borderRadius:9,padding:'9px 12px',color:BL,fontSize:12,fontWeight:700}}>Serao criadas {parseInt(parcelas.qtd)||1} contas a pagar, uma por mes, vinculadas a esta mesma compra/nota.</div>}
     </div>}
     <Inp label='Cliente / Fornecedor' value={form.clienteId} onChange={v=>fv({clienteId:v})} opts={cliOpts}/>
     {isDeslocamento&&<div style={{display:'flex',flexDirection:'column',gap:13}}>
@@ -670,7 +711,7 @@ function Financeiro({clientes,user}){
   </div>
   const depPorCat=CAT_DESP.map(c=>({cat:c,total:rows.filter(x=>x.tipo==='despesa'&&x.categoria===c&&!financeiroCancelado(x)).reduce((s,x)=>s+Number(x.valor),0)})).filter(x=>x.total>0)
   return <div>
-    <SH title='💰 Financeiro' action={canEdit&&<div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}><Btn v='g' onClick={abrirDespesaEntrega}>+ Ida/Entrega</Btn><Btn v='gh' onClick={abrirBoleto}>+ Boleto Futuro</Btn><Btn onClick={()=>{setForm(blank);setNotaFile(null);setModal('new')}}>+ Novo Lançamento</Btn></div>}/>
+    <SH title='💰 Financeiro' action={canEdit&&<div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}><Btn v='g' onClick={abrirDespesaEntrega}>+ Ida/Entrega</Btn><Btn v='gh' onClick={abrirBoleto}>+ Boleto Futuro</Btn><Btn onClick={()=>{setForm(blank);setNotaFile(null);setParcelas({qtd:'1'});setModal('new')}}>+ Novo Lançamento</Btn></div>}/>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(155px,1fr))',gap:12,marginBottom:18}}>
       <StatCard icon='📈' label='Receitas' value={fmtR(rec)} color={G}/>
       <StatCard icon='📉' label='Despesas Pagas' value={fmtR(dep)} color={R}/>
@@ -1243,12 +1284,12 @@ function ExcelPanel({sedes}){
   const [importTab,setImportTab]=useState('animais'),[importMsg,setImportMsg]=useState(null),[preview,setPreview]=useState(null)
   function exportSheet(name,data,file){const ws=XLSX.utils.json_to_sheet(data);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,name);XLSX.writeFile(wb,file+'.xlsx');}
   function exportAnimais(){exportSheet('Rebanho',animais.map(a=>{const s=sedes.find(x=>x.id===a.sedeId)||{nome:''};return {Brinco:a.brinco,Nome:a.nome||'',Especie:a.especie||'Bovino',Categoria:a.categoria||'',Raca:a.raca,Sexo:a.sexo,Nascimento:a.nascimento||'',Peso:a.peso||'',Status:a.status,Sede:s.nome};}),'PecuarIA_Rebanho');}
-  function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Categoria:f.categoria||'',Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Vencimento:f.vencimento||'',Status_Pagamento:f.statusPagamento||'pago',Forma_Pagamento:f.formaPagamento||'',Codigo_Boleto:f.codigoBoleto||'',Propriedade:f.propriedadeDestino||'',Km_Rodados:f.kmRodados||'',Valor_Km:f.valorKm||'',Cliente:c.nome||''};}),'PecuarIA_Financeiro');}
+  function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Categoria:f.categoria||'',Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Vencimento:f.vencimento||'',Status_Pagamento:f.statusPagamento||'pago',Forma_Pagamento:f.formaPagamento||'',Codigo_Boleto:f.codigoBoleto||'',Parcela_Numero:f.parcelaNumero||1,Parcela_Total:f.parcelaTotal||1,Grupo_Parcelas:f.parcelaGrupoId||'',Propriedade:f.propriedadeDestino||'',Km_Rodados:f.kmRodados||'',Valor_Km:f.valorKm||'',Cliente:c.nome||''};}),'PecuarIA_Financeiro');}
   function exportEst(){exportSheet('Estoque',estoque.map(e=>{const s=sedes.find(x=>x.id===e.sedeId)||{nome:''};return {Nome:e.nome,Categoria:e.categoria,Quantidade:e.quantidade,Unidade:e.unidade,Minimo:e.minimo,Sede:s.nome};}),'PecuarIA_Estoque');}
   function downloadTemplate(tipo){
     const tpls={
       animais:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Nascimento:'2024-08-20',Peso:65,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Nascimento:'2025-01-12',Peso:42,Status:'Ativo',Sede:'Sede Principal'}],
-      financeiro:[{Tipo:'despesa',Categoria:'Medicamentos',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'Pix',Codigo_Boleto:'',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Sal',Descricao:'Boleto sal mineral',Valor:2800,Data:'2026-05-02',Vencimento:'2026-05-20',Status_Pagamento:'pendente',Forma_Pagamento:'Boleto',Codigo_Boleto:'00000.00000 00000.000000 00000.000000 0 00000000000000',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Deslocamento/Entrega',Descricao:'Ida para propriedade - entrega de sal e medicamentos',Valor:280,Data:'2026-05-02',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'',Codigo_Boleto:'',Propriedade:'Sede Principal',Km_Rodados:112,Valor_Km:2.5,Cliente:''}],
+      financeiro:[{Tipo:'despesa',Categoria:'Medicamentos',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'Pix',Codigo_Boleto:'',Parcela_Numero:1,Parcela_Total:1,Grupo_Parcelas:'',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Sal',Descricao:'Boleto sal mineral (1/3)',Valor:933.33,Data:'2026-05-02',Vencimento:'2026-05-20',Status_Pagamento:'pendente',Forma_Pagamento:'Boleto',Codigo_Boleto:'00000.00000 00000.000000 00000.000000 0 00000000000000',Parcela_Numero:1,Parcela_Total:3,Grupo_Parcelas:'compra-sal-maio',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Sal',Descricao:'Boleto sal mineral (2/3)',Valor:933.33,Data:'2026-05-02',Vencimento:'2026-06-20',Status_Pagamento:'pendente',Forma_Pagamento:'Boleto',Codigo_Boleto:'',Parcela_Numero:2,Parcela_Total:3,Grupo_Parcelas:'compra-sal-maio',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Deslocamento/Entrega',Descricao:'Ida para propriedade - entrega de sal e medicamentos',Valor:280,Data:'2026-05-02',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'',Codigo_Boleto:'',Parcela_Numero:1,Parcela_Total:1,Grupo_Parcelas:'',Propriedade:'Sede Principal',Km_Rodados:112,Valor_Km:2.5,Cliente:''}],
       estoque:[{Nome:'Ivermectina 1%',Categoria:'Antiparasitário',Quantidade:50,Unidade:'mL',Minimo:10,Sede:'Sede Principal'}],
       manejos:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charoles',Sexo:'M',Peso:820,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85,Obs:'Dose individual'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Peso:65,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20,Obs:'Animal novo sera criado se nao existir'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Peso:42,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Vermifugo',Quantidade:3,Unidade:'mL',Valor_Unit:0.95,Obs:'Tambem aceita ovinos e caprinos'}],
       vendas:[{Brinco:'2526',Data:'2026-05-10',Valor:18000,Peso:650,Comprador:'João da Silva',CPF:'000.000.000-00',Telefone:'(46) 99999-9999',Cidade:'Palmas',Estado:'PR',Obs:'GTA 1234'}]
@@ -1265,7 +1306,7 @@ function ExcelPanel({sedes}){
         await sb.from('animais').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' animal(is) importado(s)!'})
       } else if(importTab==='financeiro'){
-        const novos=rows.map(r=>{const cli=clientes.find(c=>c.nome===r.Cliente);const km=Number(r.Km_Rodados)||0,valorKm=Number(r.Valor_Km)||0,totalKm=km*valorKm;const tipo=['venda','Venda','receita','Receita'].includes(r.Tipo)?'venda':'despesa';return {id:genId(),tipo,categoria:r.Categoria||'Outros',descricao:r.Descricao||'',valor:Number(r.Valor)||totalKm||0,data:r.Data||'',vencimento:r.Vencimento||'',statusPagamento:tipo==='despesa'?(r.Status_Pagamento||'pago'):'pago',formaPagamento:r.Forma_Pagamento||'',codigoBoleto:r.Codigo_Boleto||'',propriedadeDestino:r.Propriedade||'',kmRodados:km,valorKm,clienteId:cli?.id||''};}).filter(f=>f.descricao)
+        const novos=rows.map(r=>{const cli=clientes.find(c=>c.nome===r.Cliente);const km=Number(r.Km_Rodados)||0,valorKm=Number(r.Valor_Km)||0,totalKm=km*valorKm;const tipo=['venda','Venda','receita','Receita'].includes(r.Tipo)?'venda':'despesa';return {id:genId(),tipo,categoria:r.Categoria||'Outros',descricao:r.Descricao||'',valor:Number(r.Valor)||totalKm||0,data:r.Data||'',vencimento:r.Vencimento||'',statusPagamento:tipo==='despesa'?(r.Status_Pagamento||'pago'):'pago',formaPagamento:r.Forma_Pagamento||'',codigoBoleto:r.Codigo_Boleto||'',parcelaNumero:Number(r.Parcela_Numero)||1,parcelaTotal:Number(r.Parcela_Total)||1,parcelaGrupoId:r.Grupo_Parcelas||'',propriedadeDestino:r.Propriedade||'',kmRodados:km,valorKm,clienteId:cli?.id||''};}).filter(f=>f.descricao)
         await sb.from('financeiro').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' lançamento(s) importado(s)!'})
       } else if(importTab==='estoque'){
