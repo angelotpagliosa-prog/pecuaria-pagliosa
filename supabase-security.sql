@@ -28,7 +28,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select coalesce(public.app_perfil() = 'admin', false)
+  select coalesce(public.app_perfil() in ('admin','administrador'), false)
 $$;
 
 create or replace function public.app_can_read()
@@ -38,7 +38,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select coalesce(public.app_perfil() in ('admin','gestor','funcionario'), false)
+  select coalesce(public.app_perfil() in ('admin','administrador','gestor','funcionario'), false)
 $$;
 
 create or replace function public.app_can_write()
@@ -48,7 +48,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select coalesce(public.app_perfil() in ('admin','gestor'), false)
+  select coalesce(public.app_perfil() in ('admin','administrador','gestor'), false)
 $$;
 
 grant execute on function public.app_perfil() to authenticated;
@@ -111,13 +111,13 @@ using (public.app_can_read());
 create policy "sedes_insert_admin"
 on public.sedes for insert
 to authenticated
-with check (public.app_is_admin());
+with check (public.app_can_write());
 
 create policy "sedes_update_admin"
 on public.sedes for update
 to authenticated
-using (public.app_is_admin())
-with check (public.app_is_admin());
+using (public.app_can_write())
+with check (public.app_can_write());
 
 create policy "sedes_delete_admin"
 on public.sedes for delete

@@ -1165,6 +1165,7 @@ function Sedes({user}){
   const [movForm,setMovForm]=useState(blankMov)
   const hasAnim=sel&&animais.some(a=>a.sedeId===sel.id)
   const hasAnimPiquete=sel&&animais.some(a=>a.piqueteId===sel.id)
+  const isAdmin=['admin','administrador'].includes(user.perfil)
   const canManage=user.perfil!=='funcionario'
   async function salvarNova(){await add({id:genId(),...form});setModal(null);setForm({nome:'',cidade:'',estado:'PR'});}
   async function salvarEdit(){await update(sel.id,form);setModal(null);}
@@ -1221,14 +1222,14 @@ function Sedes({user}){
   </div>
   if(loading)return <Loading/>
   return <div>
-    <SH title='🗺️ Sedes e Localidades' action={(user.perfil==='admin'&&tab==='sedes'&&<Btn onClick={()=>setModal('new')}>+ Nova Sede</Btn>)||(canManage&&tab==='piquetes'&&<Btn onClick={()=>{setSel(null);setFormPiquete({...blankPiquete,sedeId:sedes[0]?.id||''});setModal('new_piquete')}}>+ Novo Piquete</Btn>)}/>
+    <SH title='🗺️ Sedes e Localidades' action={(canManage&&tab==='sedes'&&<Btn onClick={()=>setModal('new')}>+ Nova Sede</Btn>)||(canManage&&tab==='piquetes'&&<Btn onClick={()=>{setSel(null);setFormPiquete({...blankPiquete,sedeId:sedes[0]?.id||''});setModal('new_piquete')}}>+ Novo Piquete</Btn>)}/>
     <div style={{display:'flex',gap:6,marginBottom:20}}>{[['sedes','Sedes'],['piquetes','Piquetes'],['movimentacoes','Movimentacoes']].map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'7px 18px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:13,cursor:'pointer'}}>{t[1]}</button>)}</div>
     {tab==='sedes'&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(270px,1fr))',gap:16}}>
       {sedes.map(s=>{  const statusAtivo=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
   const an=animais.filter(a=>a.sedeId===s.id).length,pi=piquetes.filter(p=>p.sedeId===s.id).length,es=estoque.filter(e=>e.sedeId===s.id).length,ag=agenda.filter(a=>a.sedeId===s.id&&a.status==='pendente').length,ma=manejos.filter(m=>m.sedeId===s.id).length;return <div key={s.id} style={{background:CARD,border:'1px solid '+B,borderRadius:14,padding:22,borderTop:'3px solid '+Y}}>
         <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:14}}>
           <div style={{display:'flex',alignItems:'center',gap:11}}><div style={{width:42,height:42,borderRadius:10,background:Y+'18',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22}}>🏡</div><div><div style={{color:TX,fontWeight:800,fontSize:15}}>{s.nome}</div><div style={{color:D2,fontSize:12,marginTop:2}}>{s.cidade}, {s.estado}</div></div></div>
-          {user.perfil==='admin'&&<div style={{display:'flex',gap:6,flexShrink:0}}><button onClick={()=>{setSel(s);setForm({nome:s.nome,cidade:s.cidade,estado:s.estado});setModal('edit');}} style={{background:CARD2,border:'1px solid '+B,borderRadius:7,padding:'5px 10px',cursor:'pointer',color:D1,fontSize:13}}>✏️</button><button onClick={()=>{setSel(s);setModal('delete');}} style={{background:R+'15',border:'1px solid '+R+'30',borderRadius:7,padding:'5px 10px',cursor:'pointer',color:R,fontSize:13}}>🗑️</button></div>}
+          {canManage&&<div style={{display:'flex',gap:6,flexShrink:0}}><button onClick={()=>{setSel(s);setForm({nome:s.nome,cidade:s.cidade,estado:s.estado});setModal('edit');}} style={{background:CARD2,border:'1px solid '+B,borderRadius:7,padding:'5px 10px',cursor:'pointer',color:D1,fontSize:13}}>✏️</button>{isAdmin&&<button onClick={()=>{setSel(s);setModal('delete');}} style={{background:R+'15',border:'1px solid '+R+'30',borderRadius:7,padding:'5px 10px',cursor:'pointer',color:R,fontSize:13}}>🗑️</button>}</div>}
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:9}}>{[[an,'Animais',Y],[pi,'Piquetes',G],[es,'Insumos',PU],[ag,'Tarefas',BL],[ma,'Manejos',G]].map(([n,l,c])=><div key={l} style={{background:CARD2,borderRadius:8,padding:'10px 12px',border:'1px solid '+B}}><div style={{color:c,fontWeight:800,fontSize:20}}>{n}</div><div style={{color:D2,fontSize:11,marginTop:2}}>{l}</div></div>)}</div>
       </div>})}
