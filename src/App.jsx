@@ -17,6 +17,12 @@ function manejoMedicamentosTotal(meds){return (Array.isArray(meds)?meds:[]).redu
 function manejoDeslocamentoTotal(m){return (parseFloat(m?.kmRodados||0)||0)*(parseFloat(m?.valorKm||0)||0);}
 function manejoEquipeTotal(m){return (parseFloat(m?.tempoHoras||0)||0)*(parseInt(m?.pessoas||0)||0)*(parseFloat(m?.valorHoraPessoa||0)||0);}
 function manejoCustoTotal(m){return manejoMedicamentosTotal(m?.medicamentos)+manejoDeslocamentoTotal(m)+manejoEquipeTotal(m);}
+function todayISO(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);}
+function financeiroStatus(f){return f?.statusPagamento||'pago';}
+function financeiroPago(f){return financeiroStatus(f)==='pago';}
+function financeiroPendente(f){return f?.tipo==='despesa'&&financeiroStatus(f)==='pendente';}
+function financeiroCancelado(f){return financeiroStatus(f)==='cancelado';}
+function sortVencimento(a,b){return String(a.vencimento||a.data||'9999-12-31').localeCompare(String(b.vencimento||b.data||'9999-12-31'));}
 
 // ── UI ATOMS ────────────────────────────────────────────
 function Logo({small}){
@@ -121,8 +127,13 @@ function AIPanel({animais,manejos,estoque,reproducao,financeiro}){
 function Dashboard({animais,financeiro,estoque,manejos,agenda,sedes}){
   const statusAtivo=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
   const ativos=animais.filter(a=>statusAtivo.includes(a.status)).length
-  const rec=financeiro.filter(f=>f.tipo==='venda').reduce((s,f)=>s+Number(f.valor),0)
-  const dep=financeiro.filter(f=>f.tipo==='despesa').reduce((s,f)=>s+Number(f.valor),0)
+  const rec=financeiro.filter(f=>f.tipo==='venda'&&!financeiroCancelado(f)).reduce((s,f)=>s+Number(f.valor),0)
+  const dep=financeiro.filter(f=>f.tipo==='despesa'&&financeiroPago(f)).reduce((s,f)=>s+Number(f.valor),0)
+  const hoje=todayISO()
+  const contasPagar=financeiro.filter(financeiroPendente).sort(sortVencimento)
+  const contasAtrasadas=contasPagar.filter(f=>f.vencimento&&f.vencimento<hoje)
+  const contasHoje=contasPagar.filter(f=>f.vencimento===hoje)
+  const totalPagar=contasPagar.reduce((s,f)=>s+Number(f.valor),0)
   const crit=estoque.filter(e=>e.quantidade<=e.minimo).length
   const custoM=manejos.reduce((s,m)=>s+manejoCustoTotal(m),0)
   const pend=agenda.filter(a=>a.status==='pendente')
@@ -133,10 +144,20 @@ function Dashboard({animais,financeiro,estoque,manejos,agenda,sedes}){
       <StatCard icon='💰' label='Receita' value={fmtR(rec)} color={G}/>
       <StatCard icon='📉' label='Despesas' value={fmtR(dep)} color={R}/>
       <StatCard icon='💵' label='Saldo' value={fmtR(rec-dep)} color={rec-dep>=0?Y:R}/>
+      <StatCard icon='🧾' label='Contas a Pagar' value={fmtR(totalPagar)} color={contasAtrasadas.length?R:Y} sub={contasAtrasadas.length?contasAtrasadas.length+' vencida(s)':contasHoje.length+' vence(m) hoje'}/>
       <StatCard icon='💊' label='Custo Manejos' value={fmtR(custoM)} color={PU}/>
       <StatCard icon='⚠️' label='Estoque Critico' value={crit} color={crit>0?R:G} sub={crit>0?'Requer atencao':'Tudo OK'}/>
     </div>
-    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:16}}>
+      <div style={{background:CARD,border:'1px solid '+B,borderRadius:12,padding:20}}>
+        <div style={{fontWeight:700,color:TX,marginBottom:16,fontSize:14}}>🧾 Contas a Pagar</div>
+        {contasPagar.slice(0,5).map(f=>{const atrasada=f.vencimento&&f.vencimento<hoje,venceHoje=f.vencimento===hoje;return <div key={f.id} style={{display:'flex',gap:10,alignItems:'center',marginBottom:13}}>
+          <div style={{width:3,height:40,background:atrasada?R:venceHoje?Y:BL,borderRadius:2,flexShrink:0}}/>
+          <div style={{flex:1,minWidth:0}}><div style={{color:TX,fontSize:13,fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{f.descricao}</div><div style={{color:D2,fontSize:11,marginTop:2}}>Vencimento {fmtDate(f.vencimento)} - {fmtR(f.valor)}</div></div>
+          <Badge label={atrasada?'Vencida':venceHoje?'Hoje':'Pendente'} color={atrasada?R:venceHoje?Y:BL}/>
+        </div>})}
+        {contasPagar.length===0&&<div style={{color:D2,fontSize:12}}>Nenhuma conta pendente.</div>}
+      </div>
       <div style={{background:CARD,border:'1px solid '+B,borderRadius:12,padding:20}}>
         <div style={{fontWeight:700,color:TX,marginBottom:16,fontSize:14}}>📅 Agenda da Semana</div>
         {pend.slice(0,5).map(a=><div key={a.id} style={{display:'flex',gap:10,marginBottom:13}}><div style={{width:3,height:36,background:Y,borderRadius:2,marginTop:2,flexShrink:0}}/><div><div style={{color:TX,fontSize:13,fontWeight:600}}>{a.titulo}</div><div style={{color:D2,fontSize:11,marginTop:2}}>{fmtDate(a.data)} - {a.tipo}</div></div></div>)}
@@ -486,22 +507,30 @@ function ClientesFornecedores({user}){
 }
 
 // ── FINANCEIRO ────────────────────────────────────────────
-const CAT_DESP=['Sanidade','Alimentação/Ração','Mão de Obra','Combustível','Manutenção','Feitio de Cerca','Roçada','Extração de Erva Mate','Plantio de Erva Mate','Viveiro','Reprodução','Impostos/Taxas','Transporte','Deslocamento/Entrega','Energia Elétrica','Outros']
+const CAT_DESP=['Sanidade','Medicamentos','Sal','Alimentação/Ração','Mão de Obra','Combustível','Manutenção','Feitio de Cerca','Roçada','Extração de Erva Mate','Plantio de Erva Mate','Viveiro','Reprodução','Impostos/Taxas','Transporte','Deslocamento/Entrega','Energia Elétrica','Outros']
 const CAT_REC=['Venda de Animais','Arrendamento','Serviços','Outros']
-const catCorFin={Sanidade:PU,'Alimentação/Ração':'#34d399','Mão de Obra':BL,Combustível:'#fb923c',Manutenção:Y,'Feitio de Cerca':'#eab308',Roçada:'#84cc16','Extração de Erva Mate':'#10b981','Plantio de Erva Mate':'#22c55e',Viveiro:'#38bdf8',Reprodução:'#f472b6','Impostos/Taxas':R,Transporte:'#a3e635','Deslocamento/Entrega':BL,'Energia Elétrica':'#facc15','Venda de Animais':G,Arrendamento:G,Serviços:G,Outros:D1}
+const catCorFin={Sanidade:PU,Medicamentos:'#c084fc',Sal:'#facc15','Alimentação/Ração':'#34d399','Mão de Obra':BL,Combustível:'#fb923c',Manutenção:Y,'Feitio de Cerca':'#eab308',Roçada:'#84cc16','Extração de Erva Mate':'#10b981','Plantio de Erva Mate':'#22c55e',Viveiro:'#38bdf8',Reprodução:'#f472b6','Impostos/Taxas':R,Transporte:'#a3e635','Deslocamento/Entrega':BL,'Energia Elétrica':'#facc15','Venda de Animais':G,Arrendamento:G,Serviços:G,Outros:D1}
 function Financeiro({clientes,user}){
   const {rows,loading,add,update,remove,setRows}=useTable('financeiro')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null),[tab,setTab]=useState('todos'),[fCat,setFCat]=useState('')
-  const blank={tipo:'despesa',categoria:'Outros',descricao:'',valor:'',data:'',clienteId:'',propriedadeDestino:'',kmRodados:'',valorKm:'',notaNumero:'',notaSerie:'',notaChave:'',notaEmissao:'',notaUrl:'',notaObs:''}
+  const blank={tipo:'despesa',categoria:'Outros',descricao:'',valor:'',data:'',vencimento:'',statusPagamento:'pago',formaPagamento:'',codigoBoleto:'',clienteId:'',propriedadeDestino:'',kmRodados:'',valorKm:'',notaNumero:'',notaSerie:'',notaChave:'',notaEmissao:'',notaUrl:'',notaObs:''}
   const [form,setForm]=useState(blank)
   const [notaFile,setNotaFile]=useState(null)
   const [uploading,setUploading]=useState(false)
   const [selected,setSelected]=useState([])
   const [bulk,setBulk]=useState({tipo:'',categoria:'',data:'',clienteId:''})
   const fv=v=>setForm(p=>({...p,...v}))
-  const rec=rows.filter(x=>x.tipo==='venda').reduce((s,x)=>s+Number(x.valor),0)
-  const dep=rows.filter(x=>x.tipo==='despesa').reduce((s,x)=>s+Number(x.valor),0)
-  const lista=(tab==='todos'?rows:rows.filter(x=>x.tipo===tab)).filter(x=>fCat===''||x.categoria===fCat)
+  const hoje=todayISO()
+  const limite7=(()=>{const d=new Date();d.setDate(d.getDate()+7);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);})()
+  const rec=rows.filter(x=>x.tipo==='venda'&&!financeiroCancelado(x)).reduce((s,x)=>s+Number(x.valor),0)
+  const dep=rows.filter(x=>x.tipo==='despesa'&&financeiroPago(x)).reduce((s,x)=>s+Number(x.valor),0)
+  const contasPagar=rows.filter(financeiroPendente).sort(sortVencimento)
+  const contasAtrasadas=contasPagar.filter(x=>x.vencimento&&x.vencimento<hoje)
+  const contasHoje=contasPagar.filter(x=>x.vencimento===hoje)
+  const contas7=contasPagar.filter(x=>x.vencimento&&x.vencimento>hoje&&x.vencimento<=limite7)
+  const totalPagar=contasPagar.reduce((s,x)=>s+Number(x.valor),0)
+  const listaBase=tab==='pagar'?contasPagar:(tab==='todos'?rows:rows.filter(x=>x.tipo===tab))
+  const lista=listaBase.filter(x=>fCat===''||x.categoria===fCat)
   const canEdit=user.perfil!=='funcionario'
   const visibleIds=lista.map(x=>x.id)
   const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
@@ -517,7 +546,10 @@ function Financeiro({clientes,user}){
       return {...next,valor:total>0?String(total):next.valor}
     })
   }
-  function buildFinanceiro(notaUrl){return {...form,notaUrl,valor:Number(form.valor),kmRodados:Number(form.kmRodados)||0,valorKm:Number(form.valorKm)||0};}
+  function buildFinanceiro(notaUrl){
+    const status=form.tipo==='despesa'?(form.statusPagamento||'pago'):'pago'
+    return {...form,notaUrl,statusPagamento:status,valor:Number(form.valor),kmRodados:Number(form.kmRodados)||0,valorKm:Number(form.valorKm)||0}
+  }
   async function uploadNota(id){
     if(!notaFile)return form.notaUrl||''
     const safe=notaFile.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9._-]/g,'-')
@@ -579,6 +611,11 @@ function Financeiro({clientes,user}){
     setNotaFile(null)
     setModal('new')
   }
+  function abrirBoleto(){
+    setForm({...blank,tipo:'despesa',categoria:'Outros',descricao:'Boleto a pagar',statusPagamento:'pendente',formaPagamento:'Boleto',vencimento:todayISO()})
+    setNotaFile(null)
+    setModal('new')
+  }
   function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
   function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
   const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
@@ -590,6 +627,17 @@ function Financeiro({clientes,user}){
     </div>
     <Inp label='Descrição' value={form.descricao} onChange={v=>fv({descricao:v})} ph='Ex: Ivermectina lote A, Venda Touro 2526...'/>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Valor (R$)' value={form.valor} onChange={v=>fv({valor:v})} type='number'/><Inp label='Data' value={form.data} onChange={v=>fv({data:v})} type='date'/></div>
+    {form.tipo==='despesa'&&<div style={{display:'flex',flexDirection:'column',gap:13}}>
+      <div style={{background:Y+'15',border:'1px solid '+Y+'30',borderRadius:9,padding:'8px 13px',color:Y,fontSize:12,fontWeight:700}}>🧾 Conta / Boleto</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <Inp label='Status' value={form.statusPagamento} onChange={v=>fv({statusPagamento:v})} opts={[{v:'pago',l:'Pago'},{v:'pendente',l:'Pendente / Futuro'},{v:'cancelado',l:'Cancelado'}]}/>
+        <Inp label='Vencimento' value={form.vencimento} onChange={v=>fv({vencimento:v})} type='date'/>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:12}}>
+        <Inp label='Forma' value={form.formaPagamento} onChange={v=>fv({formaPagamento:v})} opts={[{v:'',l:'Nao informado'},{v:'Boleto',l:'Boleto'},{v:'Pix',l:'Pix'},{v:'Dinheiro',l:'Dinheiro'},{v:'Cartao',l:'Cartao'},{v:'Transferencia',l:'Transferencia'}]}/>
+        <Inp label='Codigo / Linha Digitavel' value={form.codigoBoleto} onChange={v=>fv({codigoBoleto:v})} ph='Linha digitavel ou codigo do boleto'/>
+      </div>
+    </div>}
     <Inp label='Cliente / Fornecedor' value={form.clienteId} onChange={v=>fv({clienteId:v})} opts={cliOpts}/>
     {isDeslocamento&&<div style={{display:'flex',flexDirection:'column',gap:13}}>
       <div style={{background:BL+'15',border:'1px solid '+BL+'30',borderRadius:9,padding:'8px 13px',color:BL,fontSize:12,fontWeight:700}}>Deslocamento até a propriedade</div>
@@ -620,21 +668,34 @@ function Financeiro({clientes,user}){
     </div>
     <Inp label='Observacoes da Nota' value={form.notaObs} onChange={v=>fv({notaObs:v})}/>
   </div>
-  const depPorCat=CAT_DESP.map(c=>({cat:c,total:rows.filter(x=>x.tipo==='despesa'&&x.categoria===c).reduce((s,x)=>s+Number(x.valor),0)})).filter(x=>x.total>0)
+  const depPorCat=CAT_DESP.map(c=>({cat:c,total:rows.filter(x=>x.tipo==='despesa'&&x.categoria===c&&!financeiroCancelado(x)).reduce((s,x)=>s+Number(x.valor),0)})).filter(x=>x.total>0)
   return <div>
-    <SH title='💰 Financeiro' action={canEdit&&<div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}><Btn v='g' onClick={abrirDespesaEntrega}>+ Ida/Entrega</Btn><Btn onClick={()=>{setForm(blank);setNotaFile(null);setModal('new')}}>+ Novo Lançamento</Btn></div>}/>
+    <SH title='💰 Financeiro' action={canEdit&&<div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}><Btn v='g' onClick={abrirDespesaEntrega}>+ Ida/Entrega</Btn><Btn v='gh' onClick={abrirBoleto}>+ Boleto Futuro</Btn><Btn onClick={()=>{setForm(blank);setNotaFile(null);setModal('new')}}>+ Novo Lançamento</Btn></div>}/>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(155px,1fr))',gap:12,marginBottom:18}}>
       <StatCard icon='📈' label='Receitas' value={fmtR(rec)} color={G}/>
-      <StatCard icon='📉' label='Despesas' value={fmtR(dep)} color={R}/>
+      <StatCard icon='📉' label='Despesas Pagas' value={fmtR(dep)} color={R}/>
       <StatCard icon='💵' label='Saldo' value={fmtR(rec-dep)} color={rec-dep>=0?Y:R}/>
+      <StatCard icon='🧾' label='A Pagar' value={fmtR(totalPagar)} color={contasAtrasadas.length?R:Y} sub={contasAtrasadas.length+' vencida(s)'}/>
       <StatCard icon='📋' label='Lançamentos' value={rows.length} color={BL}/>
+    </div>
+    <div style={{background:CARD,border:'1px solid '+B,borderRadius:12,padding:16,marginBottom:18}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12}}>
+        <div><div style={{color:TX,fontWeight:800,fontSize:14}}>Relatorio Diario - Contas a Pagar</div><div style={{color:D2,fontSize:12,marginTop:2}}>Hoje: {fmtDate(hoje)}</div></div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Badge label={'Vencidas: '+contasAtrasadas.length} color={contasAtrasadas.length?R:D1}/><Badge label={'Hoje: '+contasHoje.length} color={contasHoje.length?Y:D1}/><Badge label={'7 dias: '+contas7.length} color={contas7.length?BL:D1}/></div>
+      </div>
+      {contasPagar.length>0?<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:10}}>
+        {contasPagar.slice(0,6).map(c=>{const atrasada=c.vencimento&&c.vencimento<hoje,venceHoje=c.vencimento===hoje;return <div key={c.id} style={{background:CARD2,border:'1px solid '+B,borderLeft:'3px solid '+(atrasada?R:venceHoje?Y:BL),borderRadius:9,padding:'10px 12px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'flex-start'}}><div style={{color:TX,fontWeight:700,fontSize:13,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.descricao}</div><div style={{color:atrasada?R:venceHoje?Y:BL,fontWeight:800,fontSize:13}}>{fmtR(c.valor)}</div></div>
+          <div style={{color:D2,fontSize:11,marginTop:5}}>Vence {fmtDate(c.vencimento)} - {c.formaPagamento||'sem forma'}</div>
+        </div>})}
+      </div>:<div style={{color:D2,fontSize:12}}>Nenhuma conta pendente cadastrada.</div>}
     </div>
     {depPorCat.length>0&&<div style={{background:CARD,border:'1px solid '+B,borderRadius:12,padding:16,marginBottom:18}}>
       <div style={{color:D1,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6,marginBottom:12}}>Despesas por Categoria</div>
       <div style={{display:'flex',flexWrap:'wrap',gap:8}}>{depPorCat.sort((a,b)=>b.total-a.total).map(x=><div key={x.cat} style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'8px 14px',cursor:'pointer',borderLeft:'3px solid '+(catCorFin[x.cat]||D1)}} onClick={()=>setFCat(fCat===x.cat?'':x.cat)}><div style={{color:catCorFin[x.cat]||D1,fontWeight:700,fontSize:13}}>{fmtR(x.total)}</div><div style={{color:D2,fontSize:10,marginTop:2}}>{x.cat}</div></div>)}</div>
     </div>}
     <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
-      {[['todos','Todos'],['despesa','Despesas'],['venda','Receitas']].map(t=><button key={t[0]} onClick={()=>{setTab(t[0]);setFCat('');}} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:12,cursor:'pointer'}}>{t[1]}</button>)}
+      {[['todos','Todos'],['despesa','Despesas'],['venda','Receitas'],['pagar','Contas a pagar']].map(t=><button key={t[0]} onClick={()=>{setTab(t[0]);setFCat('');}} style={{padding:'6px 16px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:12,cursor:'pointer'}}>{t[1]}</button>)}
       {fCat&&<button onClick={()=>setFCat('')} style={{padding:'6px 12px',borderRadius:8,border:'1px solid '+R+'40',background:R+'15',color:R,fontWeight:700,fontSize:11,cursor:'pointer'}}>✕ {fCat}</button>}
     </div>
     {canEdit&&<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
@@ -648,9 +709,9 @@ function Financeiro({clientes,user}){
     </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:1050}}>
-          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Destino/Km</Th><Th>Cliente/Fornecedor</Th><Th>Nota</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
-          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;const temNota=x.notaNumero||x.notaUrl||x.notaChave;const marcado=selected.includes(x.id);const desloc=x.categoria==='Deslocamento/Entrega';return <TR key={x.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(x.id)} style={checkStyle}/></Td>}<Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1,fontSize:12}}>{desloc?<div><div style={{color:TX,fontWeight:700}}>{x.propriedadeDestino||'-'}</div><div style={{color:BL,fontWeight:700}}>{x.kmRodados?x.kmRodados+' km':'-'}</div></div>:'-'}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td><Td>{temNota?(x.notaUrl?<button onClick={()=>abrirNotaFiscal(x.notaUrl)} style={{background:'transparent',border:'none',color:Y,textDecoration:'none',fontWeight:700,cursor:'pointer',padding:0}}>NF {x.notaNumero||'anexo'}</button>:<Badge label={'NF '+(x.notaNumero||'informada')} color={Y}/>):<span style={{color:D2}}>-</span>}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setNotaFile(null);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',clienteId:x.clienteId||'',propriedadeDestino:x.propriedadeDestino||'',kmRodados:String(x.kmRodados||''),valorKm:String(x.valorKm||''),notaNumero:x.notaNumero||'',notaSerie:x.notaSerie||'',notaChave:x.notaChave||'',notaEmissao:x.notaEmissao||'',notaUrl:x.notaUrl||'',notaObs:x.notaObs||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:1180}}>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Tipo</Th><Th>Categoria</Th><Th>Descrição</Th><Th>Valor</Th><Th>Data</Th><Th>Vencimento</Th><Th>Status</Th><Th>Destino/Km</Th><Th>Cliente/Fornecedor</Th><Th>Nota</Th>{canEdit&&<Th>Ações</Th>}</tr></thead>
+          <tbody>{lista.map(x=>{const cli=clientes.find(c=>c.id===x.clienteId);const cc=catCorFin[x.categoria]||D1;const temNota=x.notaNumero||x.notaUrl||x.notaChave;const marcado=selected.includes(x.id);const desloc=x.categoria==='Deslocamento/Entrega';const st=financeiroStatus(x);const atrasada=st==='pendente'&&x.vencimento&&x.vencimento<hoje;const stColor=st==='pago'?G:st==='cancelado'?D2:atrasada?R:Y;const stLabel=st==='pago'?'Pago':st==='cancelado'?'Cancelado':atrasada?'Vencido':'Pendente';return <TR key={x.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(x.id)} style={checkStyle}/></Td>}<Td><Badge label={x.tipo==='venda'?'Receita':'Despesa'} color={x.tipo==='venda'?G:R}/></Td><Td><Badge label={x.categoria||'Outros'} color={cc}/></Td><Td s={{fontWeight:600}}>{x.descricao}</Td><Td s={{fontWeight:800,color:x.tipo==='venda'?G:R}}>{fmtR(x.valor)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.data)}</Td><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(x.vencimento)}</Td><Td><Badge label={stLabel} color={stColor} dot/></Td><Td s={{color:D1,fontSize:12}}>{desloc?<div><div style={{color:TX,fontWeight:700}}>{x.propriedadeDestino||'-'}</div><div style={{color:BL,fontWeight:700}}>{x.kmRodados?x.kmRodados+' km':'-'}</div></div>:'-'}</Td><Td s={{color:D1}}>{cli?.nome||'-'}</Td><Td>{temNota?(x.notaUrl?<button onClick={()=>abrirNotaFiscal(x.notaUrl)} style={{background:'transparent',border:'none',color:Y,textDecoration:'none',fontWeight:700,cursor:'pointer',padding:0}}>NF {x.notaNumero||'anexo'}</button>:<Badge label={'NF '+(x.notaNumero||'informada')} color={Y}/>):<span style={{color:D2}}>-</span>}</Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(x);setNotaFile(null);setForm({tipo:x.tipo,categoria:x.categoria||'Outros',descricao:x.descricao,valor:String(x.valor),data:x.data||'',vencimento:x.vencimento||'',statusPagamento:financeiroStatus(x),formaPagamento:x.formaPagamento||'',codigoBoleto:x.codigoBoleto||'',clienteId:x.clienteId||'',propriedadeDestino:x.propriedadeDestino||'',kmRodados:String(x.kmRodados||''),valorKm:String(x.valorKm||''),notaNumero:x.notaNumero||'',notaSerie:x.notaSerie||'',notaChave:x.notaChave||'',notaEmissao:x.notaEmissao||'',notaUrl:x.notaUrl||'',notaObs:x.notaObs||''});setModal('edit');}} onDel={()=>{setSel(x);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {lista.length===0&&<Empty/>}
       </div>}
@@ -1182,12 +1243,12 @@ function ExcelPanel({sedes}){
   const [importTab,setImportTab]=useState('animais'),[importMsg,setImportMsg]=useState(null),[preview,setPreview]=useState(null)
   function exportSheet(name,data,file){const ws=XLSX.utils.json_to_sheet(data);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,name);XLSX.writeFile(wb,file+'.xlsx');}
   function exportAnimais(){exportSheet('Rebanho',animais.map(a=>{const s=sedes.find(x=>x.id===a.sedeId)||{nome:''};return {Brinco:a.brinco,Nome:a.nome||'',Especie:a.especie||'Bovino',Categoria:a.categoria||'',Raca:a.raca,Sexo:a.sexo,Nascimento:a.nascimento||'',Peso:a.peso||'',Status:a.status,Sede:s.nome};}),'PecuarIA_Rebanho');}
-  function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Categoria:f.categoria||'',Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Propriedade:f.propriedadeDestino||'',Km_Rodados:f.kmRodados||'',Valor_Km:f.valorKm||'',Cliente:c.nome||''};}),'PecuarIA_Financeiro');}
+  function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Categoria:f.categoria||'',Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Vencimento:f.vencimento||'',Status_Pagamento:f.statusPagamento||'pago',Forma_Pagamento:f.formaPagamento||'',Codigo_Boleto:f.codigoBoleto||'',Propriedade:f.propriedadeDestino||'',Km_Rodados:f.kmRodados||'',Valor_Km:f.valorKm||'',Cliente:c.nome||''};}),'PecuarIA_Financeiro');}
   function exportEst(){exportSheet('Estoque',estoque.map(e=>{const s=sedes.find(x=>x.id===e.sedeId)||{nome:''};return {Nome:e.nome,Categoria:e.categoria,Quantidade:e.quantidade,Unidade:e.unidade,Minimo:e.minimo,Sede:s.nome};}),'PecuarIA_Estoque');}
   function downloadTemplate(tipo){
     const tpls={
       animais:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Nascimento:'2024-08-20',Peso:65,Status:'Ativo',Sede:'Sede Principal'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Nascimento:'2025-01-12',Peso:42,Status:'Ativo',Sede:'Sede Principal'}],
-      financeiro:[{Tipo:'despesa',Categoria:'Sanidade',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Deslocamento/Entrega',Descricao:'Ida para propriedade - entrega de sal e medicamentos',Valor:280,Data:'2026-05-02',Propriedade:'Sede Principal',Km_Rodados:112,Valor_Km:2.5,Cliente:''}],
+      financeiro:[{Tipo:'despesa',Categoria:'Medicamentos',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'Pix',Codigo_Boleto:'',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Sal',Descricao:'Boleto sal mineral',Valor:2800,Data:'2026-05-02',Vencimento:'2026-05-20',Status_Pagamento:'pendente',Forma_Pagamento:'Boleto',Codigo_Boleto:'00000.00000 00000.000000 00000.000000 0 00000000000000',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Deslocamento/Entrega',Descricao:'Ida para propriedade - entrega de sal e medicamentos',Valor:280,Data:'2026-05-02',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'',Codigo_Boleto:'',Propriedade:'Sede Principal',Km_Rodados:112,Valor_Km:2.5,Cliente:''}],
       estoque:[{Nome:'Ivermectina 1%',Categoria:'Antiparasitário',Quantidade:50,Unidade:'mL',Minimo:10,Sede:'Sede Principal'}],
       manejos:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charoles',Sexo:'M',Peso:820,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85,Obs:'Dose individual'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Peso:65,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20,Obs:'Animal novo sera criado se nao existir'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Peso:42,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Vermifugo',Quantidade:3,Unidade:'mL',Valor_Unit:0.95,Obs:'Tambem aceita ovinos e caprinos'}],
       vendas:[{Brinco:'2526',Data:'2026-05-10',Valor:18000,Peso:650,Comprador:'João da Silva',CPF:'000.000.000-00',Telefone:'(46) 99999-9999',Cidade:'Palmas',Estado:'PR',Obs:'GTA 1234'}]
@@ -1204,7 +1265,7 @@ function ExcelPanel({sedes}){
         await sb.from('animais').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' animal(is) importado(s)!'})
       } else if(importTab==='financeiro'){
-        const novos=rows.map(r=>{const cli=clientes.find(c=>c.nome===r.Cliente);const km=Number(r.Km_Rodados)||0,valorKm=Number(r.Valor_Km)||0,totalKm=km*valorKm;return {id:genId(),tipo:['venda','Venda','receita','Receita'].includes(r.Tipo)?'venda':'despesa',categoria:r.Categoria||'Outros',descricao:r.Descricao||'',valor:Number(r.Valor)||totalKm||0,data:r.Data||'',propriedadeDestino:r.Propriedade||'',kmRodados:km,valorKm,clienteId:cli?.id||''};}).filter(f=>f.descricao)
+        const novos=rows.map(r=>{const cli=clientes.find(c=>c.nome===r.Cliente);const km=Number(r.Km_Rodados)||0,valorKm=Number(r.Valor_Km)||0,totalKm=km*valorKm;const tipo=['venda','Venda','receita','Receita'].includes(r.Tipo)?'venda':'despesa';return {id:genId(),tipo,categoria:r.Categoria||'Outros',descricao:r.Descricao||'',valor:Number(r.Valor)||totalKm||0,data:r.Data||'',vencimento:r.Vencimento||'',statusPagamento:tipo==='despesa'?(r.Status_Pagamento||'pago'):'pago',formaPagamento:r.Forma_Pagamento||'',codigoBoleto:r.Codigo_Boleto||'',propriedadeDestino:r.Propriedade||'',kmRodados:km,valorKm,clienteId:cli?.id||''};}).filter(f=>f.descricao)
         await sb.from('financeiro').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' lançamento(s) importado(s)!'})
       } else if(importTab==='estoque'){
