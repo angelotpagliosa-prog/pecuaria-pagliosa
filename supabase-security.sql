@@ -71,6 +71,7 @@ alter table public.semen_botijoes enable row level security;
 alter table public.semen_palhetas enable row level security;
 alter table public.semen_saidas enable row level security;
 alter table if exists public.piquetes enable row level security;
+alter table if exists public.aplicacoes_estoque enable row level security;
 
 drop policy if exists "usuarios_select_secure" on public.usuarios;
 drop policy if exists "usuarios_insert_admin" on public.usuarios;
@@ -145,6 +146,37 @@ begin
       execute format('create policy "%s_delete_secure" on public.%I for delete to authenticated using (public.app_can_write())', t, t);
     end if;
   end loop;
+end $$;
+
+do $$
+begin
+  if to_regclass('public.aplicacoes_estoque') is not null then
+    drop policy if exists "aplicacoes_estoque_select_secure" on public.aplicacoes_estoque;
+    drop policy if exists "aplicacoes_estoque_insert_secure" on public.aplicacoes_estoque;
+    drop policy if exists "aplicacoes_estoque_update_secure" on public.aplicacoes_estoque;
+    drop policy if exists "aplicacoes_estoque_delete_secure" on public.aplicacoes_estoque;
+
+    create policy "aplicacoes_estoque_select_secure"
+    on public.aplicacoes_estoque for select
+    to authenticated
+    using (public.app_can_read());
+
+    create policy "aplicacoes_estoque_insert_secure"
+    on public.aplicacoes_estoque for insert
+    to authenticated
+    with check (public.app_can_read());
+
+    create policy "aplicacoes_estoque_update_secure"
+    on public.aplicacoes_estoque for update
+    to authenticated
+    using (public.app_can_write())
+    with check (public.app_can_write());
+
+    create policy "aplicacoes_estoque_delete_secure"
+    on public.aplicacoes_estoque for delete
+    to authenticated
+    using (public.app_can_write());
+  end if;
 end $$;
 
 insert into storage.buckets (id, name, public)

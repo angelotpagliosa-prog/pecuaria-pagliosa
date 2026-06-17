@@ -10,9 +10,11 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 const Y='#FFB300',G='#22c55e',R='#ef4444',PU='#a78bfa',BL='#38bdf8'
 const BG='#0b0c13',CARD='#11121a',CARD2='#181923',B='#21222f',TX='#eef0f8',D1='#94a3b8',D2='#5a6070',D3='#2a2b38'
+const FARMACIA_ID='farmacia'
 
 function fmtDate(s){if(!s)return '-';return new Date(s+'T12:00').toLocaleDateString('pt-BR');}
 function fmtR(n){return 'R$ '+Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2});}
+function localEstoqueNome(id,sedes){if(id===FARMACIA_ID)return 'Farmácia';return sedes.find(s=>s.id===id)?.nome||'-';}
 function manejoMedicamentosTotal(meds){return (Array.isArray(meds)?meds:[]).reduce((s,m)=>s+(parseFloat(m.qtd||0)*parseFloat(m.valor||0)),0);}
 function manejoDeslocamentoTotal(m){return (parseFloat(m?.kmRodados||0)||0)*(parseFloat(m?.valorKm||0)||0);}
 function manejoEquipeTotal(m){return (parseFloat(m?.tempoHoras||0)||0)*(parseInt(m?.pessoas||0)||0)*(parseFloat(m?.valorHoraPessoa||0)||0);}
@@ -337,19 +339,69 @@ function Rebanho({sedes,user}){
 // ── ESTOQUE ───────────────────────────────────────────────
 function Estoque({sedes,user}){
   const {rows,loading,add,update,remove,setRows}=useTable('estoque')
+  const {rows:aplicacoes,loading:loadingAplic,setRows:setAplicacoes}=useTable('aplicacoes_estoque')
+  const {rows:animais}=useTable('animais')
   const [modal,setModal]=useState(null),[sel,setSel]=useState(null)
-  const blank={nome:'',categoria:'Hormônio',quantidade:'',unidade:'unid',minimo:'',sedeId:sedes[0]?.id||''}
+  const blank={nome:'',categoria:'Hormônio',quantidade:'',unidade:'unid',minimo:'',sedeId:FARMACIA_ID}
+  const blankAplic={estoqueId:'',brinco:'',data:todayISO(),quantidade:'',sedeId:FARMACIA_ID,responsavel:user.nome||'',obs:''}
   const [form,setForm]=useState(blank)
+  const [aplic,setAplic]=useState(blankAplic)
   const [selected,setSelected]=useState([])
   const [bulk,setBulk]=useState({categoria:'',unidade:'',minimo:'',sedeId:''})
+  const [tab,setTab]=useState('estoque')
+  const [fLocal,setFLocal]=useState(''),[fCat,setFCat]=useState('')
   const fv=v=>setForm(p=>({...p,...v}))
+  const fav=v=>setAplic(p=>({...p,...v}))
   const canEdit=user.perfil!=='funcionario'
-  const visibleIds=rows.map(e=>e.id)
+  const locaisOpts=[{v:FARMACIA_ID,l:'Farmácia'},...sedes.map(s=>({v:s.id,l:s.nome}))]
+  const catEstOpts=['Hormônio','Antibiótico','Antiinflamatório','Antiparasitário','Vacina','Implantes','Ração','Sêmen','Equipamento','Outro'].map(c=>({v:c,l:c}))
+  const unidadeOpts=['unid','mL','L','kg','g','dose','comp'].map(u=>({v:u,l:u}))
+  const lista=rows.filter(e=>(fLocal===''||e.sedeId===fLocal)&&(fCat===''||e.categoria===fCat))
+  const visibleIds=lista.map(e=>e.id)
   const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
   const allVisibleSelected=visibleIds.length>0&&selectedVisible===visibleIds.length
+  const criticos=rows.filter(e=>Number(e.quantidade||0)<=Number(e.minimo||0)).length
+  const farmaciaItens=rows.filter(e=>e.sedeId===FARMACIA_ID).length
+  const sedesItens=rows.filter(e=>e.sedeId!==FARMACIA_ID).length
+  const aplicHoje=aplicacoes.filter(a=>a.data===todayISO()).length
+  const aplicacoesOrdenadas=[...aplicacoes].sort((a,b)=>String(b.data||b.created_at||'').localeCompare(String(a.data||a.created_at||'')))
+
   async function salvarNovo(){await add({id:genId(),...form,quantidade:Number(form.quantidade),minimo:Number(form.minimo)});setModal(null);}
   async function salvarEdit(){await update(sel.id,{...form,quantidade:Number(form.quantidade),minimo:Number(form.minimo)});setModal(null);}
   async function confirmarDel(){await remove(sel.id);setSelected(p=>p.filter(id=>id!==sel.id));setModal(null);}
+  async function salvarAplicacao(){
+    const item=rows.find(e=>e.id===aplic.estoqueId)
+    const qtd=Number(aplic.quantidade)||0
+    const brinco=String(aplic.brinco||'').trim()
+    if(!item||!brinco||qtd<=0)return
+    if(qtd>Number(item.quantidade||0)){alert('Quantidade maior que o saldo disponivel em estoque.');return}
+    const animal=animais.find(a=>String(a.brinco||'').trim()===brinco)
+    const obj={id:genId(),estoqueId:item.id,animalId:animal?.id||'',brinco,data:aplic.data||todayISO(),quantidade:qtd,unidade:item.unidade||aplic.unidade||'',sedeId:aplic.sedeId||item.sedeId||FARMACIA_ID,responsavel:aplic.responsavel||user.nome||'',obs:aplic.obs||''}
+    const params={p_id:obj.id,p_estoque_id:obj.estoqueId,p_animal_id:obj.animalId||null,p_brinco:obj.brinco,p_data:obj.data,p_quantidade:obj.quantidade,p_unidade:obj.unidade,p_sede_id:obj.sedeId,p_responsavel:obj.responsavel,p_obs:obj.obs}
+    let salvo=null,estoqueAtualizado=false
+    const {data:rpcData,error:rpcError}=await sb.rpc('registrar_aplicacao_estoque',params)
+    if(!rpcError){
+      salvo=rpcData
+      estoqueAtualizado=true
+    } else if((rpcError.message||'').toLowerCase().includes('estoque insuficiente')||(rpcError.message||'').toLowerCase().includes('quantidade invalida')){
+      alert('Erro ao lançar aplicação: '+rpcError.message)
+      return
+    } else {
+      const {data,error}=await sb.from('aplicacoes_estoque').insert([obj]).select()
+      if(error){alert('Erro ao lançar aplicação: '+error.message+'\n\nSe a tabela ainda nao existir, rode o arquivo supabase-estoque-farmacia-aplicacoes.sql no Supabase.');return}
+      salvo=data?.[0]||obj
+      const novoSaldo=Number(item.quantidade||0)-qtd
+      const {data:estData,error:estError}=await sb.from('estoque').update({quantidade:novoSaldo}).eq('id',item.id).select()
+      if(estError){alert('Aplicação registrada, mas o estoque não foi baixado automaticamente: '+estError.message);estoqueAtualizado=false}
+      else {setRows(p=>p.map(r=>r.id===item.id?(estData?.[0]||{...r,quantidade:novoSaldo}):r));estoqueAtualizado=true}
+    }
+    if(estoqueAtualizado){
+      const novoSaldo=Number(item.quantidade||0)-qtd
+      setRows(p=>p.map(r=>r.id===item.id?{...r,quantidade:novoSaldo}:r))
+    }
+    setAplicacoes(p=>[...p,salvo||obj])
+    setAplic(blankAplic);setModal(null);setTab('aplicacoes')
+  }
   async function aplicarLote(){
     const obj={}
     if(bulk.categoria)obj.categoria=bulk.categoria
@@ -373,46 +425,87 @@ function Estoque({sedes,user}){
   }
   function toggleOne(id){setSelected(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);}
   function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
-  const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
-  const catEstOpts=['Hormônio','Antiparasitário','Vacina','Ração','Sêmen','Equipamento','Outro'].map(c=>({v:c,l:c}))
-  const unidadeOpts=['unid','mL','L','kg','g','dose','comp'].map(u=>({v:u,l:u}))
   const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
+  const itemAplic=rows.find(e=>e.id===aplic.estoqueId)
+  const animalAplic=animais.find(a=>String(a.brinco||'').trim()===String(aplic.brinco||'').trim())
   const fields=<div style={{display:'flex',flexDirection:'column',gap:13}}>
     <Inp label='Nome do Item' value={form.nome} onChange={v=>fv({nome:v})}/>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Categoria' value={form.categoria} onChange={v=>fv({categoria:v})} opts={catEstOpts}/><Inp label='Unidade' value={form.unidade} onChange={v=>fv({unidade:v})} opts={unidadeOpts}/></div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Qtd. Atual' value={form.quantidade} onChange={v=>fv({quantidade:v})} type='number'/><Inp label='Estoque Minimo' value={form.minimo} onChange={v=>fv({minimo:v})} type='number'/></div>
-    <Inp label='Sede' value={form.sedeId} onChange={v=>fv({sedeId:v})} opts={sedeOpts}/>
+    <Inp label='Local do Estoque' value={form.sedeId} onChange={v=>fv({sedeId:v})} opts={locaisOpts}/>
+  </div>
+  const aplicFields=<div style={{display:'flex',flexDirection:'column',gap:13}}>
+    <Inp label='Medicamento / Insumo' value={aplic.estoqueId} onChange={v=>{const item=rows.find(e=>e.id===v);setAplic(p=>({...p,estoqueId:v,sedeId:item?.sedeId||p.sedeId||FARMACIA_ID}))}} opts={[{v:'',l:'Selecione...'},...rows.map(e=>({v:e.id,l:e.nome+' - '+localEstoqueNome(e.sedeId,sedes)+' ('+(e.quantidade||0)+' '+(e.unidade||'')+')'}))]}/>
+    {itemAplic&&<div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'10px 13px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+      <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Local</div><div style={{color:Y,fontWeight:700,fontSize:13,marginTop:3}}>{localEstoqueNome(itemAplic.sedeId,sedes)}</div></div>
+      <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Saldo</div><div style={{color:Number(itemAplic.quantidade||0)<=Number(itemAplic.minimo||0)?R:G,fontWeight:700,fontSize:13,marginTop:3}}>{itemAplic.quantidade||0} {itemAplic.unidade}</div></div>
+      <div><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Categoria</div><div style={{color:PU,fontWeight:700,fontSize:13,marginTop:3}}>{itemAplic.categoria||'-'}</div></div>
+    </div>}
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <Inp label='Brinco do Animal' value={aplic.brinco} onChange={v=>fav({brinco:v})} ph='Ex: 2526'/>
+      <Inp label='Data da Aplicação' value={aplic.data} onChange={v=>fav({data:v})} type='date'/>
+    </div>
+    {aplic.brinco&&<div style={{background:(animalAplic?G:R)+'12',border:'1px solid '+(animalAplic?G:R)+'35',borderRadius:8,padding:'9px 12px',color:animalAplic?G:R,fontSize:12,fontWeight:700}}>{animalAplic?'Animal encontrado: '+animalAplic.brinco+(animalAplic.nome?' - '+animalAplic.nome:''):'Brinco nao encontrado no rebanho. O lançamento sera salvo mesmo assim.'}</div>}
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <Inp label={'Quantidade '+(itemAplic?.unidade?'('+itemAplic.unidade+')':'')} value={aplic.quantidade} onChange={v=>fav({quantidade:v})} type='number'/>
+      <Inp label='Local / Sede' value={aplic.sedeId} onChange={v=>fav({sedeId:v})} opts={locaisOpts}/>
+    </div>
+    <Inp label='Responsavel' value={aplic.responsavel} onChange={v=>fav({responsavel:v})}/>
+    <Inp label='Observacoes' value={aplic.obs} onChange={v=>fav({obs:v})} ph='Ex: vacina clostridial, lote, dose, via de aplicação'/>
   </div>
   return <div>
-    <SH title='📦 Estoque e Insumos' action={canEdit&&<Btn onClick={()=>{setForm(blank);setModal('new')}}>+ Novo Item</Btn>}/>
-    {canEdit&&<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
-      <button onClick={toggleVisible} disabled={rows.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:rows.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>
-      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{rows.length} item(ns)</div>
-      {selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
-    </div>}
-    {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
-      <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} item(ns) selecionado(s)</div>
-      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Btn v='g' small onClick={()=>{setBulk({categoria:'',unidade:'',minimo:'',sedeId:''});setModal('bulk')}}>Aplicar em lote</Btn><Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn></div>
-    </div>}
-    <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
-      {loading?<Loading/>:<div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:700}}>
-          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Item</Th><Th>Categoria</Th><Th>Qtd. Atual</Th><Th>Minimo</Th><Th>Sede</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
-          <tbody>{rows.map(e=>{const crit=e.quantidade<=e.minimo;const sede=sedes.find(s=>s.id===e.sedeId);const marcado=selected.includes(e.id);return <TR key={e.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(e.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:600}}>{e.nome}</Td><Td><Badge label={e.categoria} color={PU}/></Td><Td s={{fontWeight:800,color:crit?R:TX}}>{e.quantidade+' '+e.unidade}</Td><Td s={{color:D1}}>{e.minimo+' '+e.unidade}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td><Badge label={crit?'Critico':'Normal'} color={crit?R:G} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(e);setForm({nome:e.nome,categoria:e.categoria,quantidade:e.quantidade,unidade:e.unidade,minimo:e.minimo,sedeId:e.sedeId});setModal('edit');}} onDel={()=>{setSel(e);setModal('delete');}}/></Td>}</TR>})}</tbody>
-        </table>
-        {rows.length===0&&<Empty/>}
-      </div>}
+    <SH title='📦 Estoque e Insumos' action={<div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}><Btn v='g' onClick={()=>{setAplic(blankAplic);setModal('aplic')}}>+ Lançar Aplicação</Btn>{canEdit&&<Btn onClick={()=>{setForm(blank);setModal('new')}}>+ Novo Item</Btn>}</div>}/>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:18}}>
+      <StatCard icon='💊' label='Farmácia' value={farmaciaItens} color={PU} sub='Itens centrais'/>
+      <StatCard icon='🏡' label='Nas Sedes' value={sedesItens} color={BL} sub='Estoque local'/>
+      <StatCard icon='⚠️' label='Críticos' value={criticos} color={criticos>0?R:G}/>
+      <StatCard icon='💉' label='Aplicações Hoje' value={aplicHoje} color={G}/>
     </div>
+    <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
+      {[['estoque','Estoque por Local'],['aplicacoes','Aplicações por Animal']].map(t=><button key={t[0]} onClick={()=>setTab(t[0])} style={{padding:'7px 18px',borderRadius:8,border:'1px solid '+(tab===t[0]?Y:B),background:tab===t[0]?Y+'18':'transparent',color:tab===t[0]?Y:D1,fontWeight:700,fontSize:13,cursor:'pointer'}}>{t[1]}</button>)}
+    </div>
+    {tab==='estoque'&&<>
+      <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+        <select value={fLocal} onChange={e=>setFLocal(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todos os locais</option>{locaisOpts.map(l=><option key={l.v} value={l.v}>{l.l}</option>)}</select>
+        <select value={fCat} onChange={e=>setFCat(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todas as categorias</option>{catEstOpts.map(c=><option key={c.v} value={c.v}>{c.l}</option>)}</select>
+        {canEdit&&<button onClick={toggleVisible} disabled={lista.length===0} style={{background:allVisibleSelected?Y+'18':CARD2,border:'1px solid '+(allVisibleSelected?Y:B),borderRadius:9,padding:'9px 14px',fontSize:13,color:allVisibleSelected?Y:D1,fontWeight:700,cursor:lista.length===0?'not-allowed':'pointer'}}>{allVisibleSelected?'Desmarcar todos':'Selecionar todos'}</button>}
+        <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{lista.length} item(ns)</div>
+        {canEdit&&selected.length>0&&<button onClick={()=>setSelected([])} style={{background:R+'15',border:'1px solid '+R+'35',borderRadius:9,padding:'9px 14px',fontSize:13,color:R,fontWeight:700,cursor:'pointer'}}>{selected.length} selecionado(s) - limpar</button>}
+      </div>
+      {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+        <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} item(ns) selecionado(s)</div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Btn v='g' small onClick={()=>{setBulk({categoria:'',unidade:'',minimo:'',sedeId:''});setModal('bulk')}}>Aplicar em lote</Btn><Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn></div>
+      </div>}
+      <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
+        {loading?<Loading/>:<div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+            <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Item</Th><Th>Categoria</Th><Th>Qtd. Atual</Th><Th>Minimo</Th><Th>Local</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}<Th>Aplicação</Th></tr></thead>
+            <tbody>{lista.map(e=>{const crit=Number(e.quantidade||0)<=Number(e.minimo||0);const marcado=selected.includes(e.id);return <TR key={e.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(e.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:600}}>{e.nome}</Td><Td><Badge label={e.categoria} color={PU}/></Td><Td s={{fontWeight:800,color:crit?R:TX}}>{(e.quantidade||0)+' '+(e.unidade||'')}</Td><Td s={{color:D1}}>{(e.minimo||0)+' '+(e.unidade||'')}</Td><Td s={{color:D1,fontSize:12}}>{localEstoqueNome(e.sedeId,sedes)}</Td><Td><Badge label={crit?'Critico':'Normal'} color={crit?R:G} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(e);setForm({nome:e.nome,categoria:e.categoria,quantidade:e.quantidade,unidade:e.unidade,minimo:e.minimo,sedeId:e.sedeId||FARMACIA_ID});setModal('edit');}} onDel={()=>{setSel(e);setModal('delete');}}/></Td>}<Td><Btn v='g' small onClick={()=>{setAplic({...blankAplic,estoqueId:e.id,sedeId:e.sedeId||FARMACIA_ID});setModal('aplic')}}>Aplicar</Btn></Td></TR>})}</tbody>
+          </table>
+          {lista.length===0&&<Empty/>}
+        </div>}
+      </div>
+    </>}
+    {tab==='aplicacoes'&&<div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
+      {loadingAplic?<Loading/>:<div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:760}}>
+          <thead><tr><Th>Data</Th><Th>Brinco</Th><Th>Animal</Th><Th>Item</Th><Th>Quantidade</Th><Th>Local</Th><Th>Responsavel</Th><Th>Obs.</Th></tr></thead>
+          <tbody>{aplicacoesOrdenadas.map(a=>{const item=rows.find(e=>e.id===a.estoqueId);const animal=animais.find(x=>x.id===a.animalId)||animais.find(x=>String(x.brinco||'')===String(a.brinco||''));return <TR key={a.id}><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDate(a.data)}</Td><Td s={{fontWeight:800,color:Y}}>{a.brinco||'-'}</Td><Td s={{fontWeight:600}}>{animal?.nome||'-'}</Td><Td><Badge label={item?.nome||'Item removido'} color={PU}/></Td><Td s={{fontWeight:800,color:G}}>{a.quantidade||0} {a.unidade||item?.unidade||''}</Td><Td s={{color:D1,fontSize:12}}>{localEstoqueNome(a.sedeId||item?.sedeId,sedes)}</Td><Td s={{color:D1,fontSize:12}}>{a.responsavel||'-'}</Td><Td s={{color:D2,fontSize:12}}>{a.obs||'-'}</Td></TR>})}</tbody>
+        </table>
+        {aplicacoes.length===0&&<Empty msg='Nenhuma aplicação lançada.'/>}
+      </div>}
+    </div>}
     {modal==='new'&&<Modal title='Novo Item' onClose={()=>setModal(null)}>{fields}<MFooter onCancel={()=>setModal(null)} onSave={salvarNovo} label='Salvar Item' disabled={!form.nome}/></Modal>}
     {modal==='edit'&&sel&&<Modal title={'Editar: '+sel.nome} onClose={()=>setModal(null)}>{fields}<MFooter onCancel={()=>setModal(null)} onSave={salvarEdit} disabled={!form.nome}/></Modal>}
     {modal==='delete'&&sel&&<Modal title='Excluir Item' onClose={()=>setModal(null)}><DelConfirm msg={'Excluir '+sel.nome+'?'} onCancel={()=>setModal(null)} onConfirm={confirmarDel}/></Modal>}
+    {modal==='aplic'&&<Modal title='Lançar Aplicação / Vacinação' onClose={()=>setModal(null)} wide>{aplicFields}<MFooter onCancel={()=>setModal(null)} onSave={salvarAplicacao} label='Lançar e Baixar Estoque' disabled={!aplic.estoqueId||!aplic.brinco||!aplic.quantidade||!aplic.data}/></Modal>}
     {modal==='bulk'&&<Modal title='Aplicar em lote' onClose={()=>setModal(null)}>
       <div style={{display:'flex',flexDirection:'column',gap:13}}>
         <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} item(ns) selecionado(s). Preencha apenas o que deseja alterar.</div>
         <Inp label='Categoria' value={bulk.categoria} onChange={v=>setBulk(p=>({...p,categoria:v}))} opts={[{v:'',l:'Manter categoria atual'},...catEstOpts]}/>
         <Inp label='Unidade' value={bulk.unidade} onChange={v=>setBulk(p=>({...p,unidade:v}))} opts={[{v:'',l:'Manter unidade atual'},...unidadeOpts]}/>
         <Inp label='Estoque Minimo' value={bulk.minimo} onChange={v=>setBulk(p=>({...p,minimo:v}))} type='number' ph='Deixe vazio para manter'/>
-        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={[{v:'',l:'Manter sede atual'},...sedeOpts]}/>
+        <Inp label='Local do Estoque' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={[{v:'',l:'Manter local atual'},...locaisOpts]}/>
         <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.categoria&&!bulk.unidade&&!bulk.sedeId&&bulk.minimo===''}/>
       </div>
     </Modal>}
@@ -1364,14 +1457,15 @@ function ExcelPanel({sedes}){
   const fileRef=useRef(null)
   const [importTab,setImportTab]=useState('animais'),[importMsg,setImportMsg]=useState(null),[preview,setPreview]=useState(null)
   function exportSheet(name,data,file){const ws=XLSX.utils.json_to_sheet(data);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,name);XLSX.writeFile(wb,file+'.xlsx');}
+  function estoqueLocalId(nome){const txt=String(nome||'').trim();if(!txt)return FARMACIA_ID;if(txt.toLowerCase().includes('farm'))return FARMACIA_ID;return sedes.find(s=>s.nome===txt)?.id||sedes[0]?.id||FARMACIA_ID;}
   function exportAnimais(){exportSheet('Rebanho',animais.map(a=>{const s=sedes.find(x=>x.id===a.sedeId)||{nome:''};const p=piquetes.find(x=>x.id===a.piqueteId)||{nome:''};return {Brinco:a.brinco,Nome:a.nome||'',Especie:a.especie||'Bovino',Categoria:a.categoria||'',Raca:a.raca,Sexo:a.sexo,Nascimento:a.nascimento||'',Peso:a.peso||'',Status:a.status,Sede:s.nome,Piquete:p.nome};}),'PecuarIA_Rebanho');}
   function exportFin(){exportSheet('Financeiro',financeiro.map(f=>{const c=clientes.find(x=>x.id===f.clienteId)||{nome:''};return {Tipo:f.tipo,Categoria:f.categoria||'',Descricao:f.descricao,Valor:f.valor,Data:f.data||'',Vencimento:f.vencimento||'',Status_Pagamento:f.statusPagamento||'pago',Forma_Pagamento:f.formaPagamento||'',Codigo_Boleto:f.codigoBoleto||'',Parcela_Numero:f.parcelaNumero||1,Parcela_Total:f.parcelaTotal||1,Grupo_Parcelas:f.parcelaGrupoId||'',Propriedade:f.propriedadeDestino||'',Km_Rodados:f.kmRodados||'',Valor_Km:f.valorKm||'',Cliente:c.nome||''};}),'PecuarIA_Financeiro');}
-  function exportEst(){exportSheet('Estoque',estoque.map(e=>{const s=sedes.find(x=>x.id===e.sedeId)||{nome:''};return {Nome:e.nome,Categoria:e.categoria,Quantidade:e.quantidade,Unidade:e.unidade,Minimo:e.minimo,Sede:s.nome};}),'PecuarIA_Estoque');}
+  function exportEst(){exportSheet('Estoque',estoque.map(e=>({Nome:e.nome,Categoria:e.categoria,Quantidade:e.quantidade,Unidade:e.unidade,Minimo:e.minimo,Local:localEstoqueNome(e.sedeId,sedes)})),'PecuarIA_Estoque');}
   function downloadTemplate(tipo){
     const tpls={
       animais:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charolês',Sexo:'M',Nascimento:'2022-03-15',Peso:820,Status:'Ativo',Sede:'Sede Principal',Piquete:'Piquete 1'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Nascimento:'2024-08-20',Peso:65,Status:'Ativo',Sede:'Sede Principal',Piquete:'Piquete 2'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Nascimento:'2025-01-12',Peso:42,Status:'Ativo',Sede:'Sede Principal',Piquete:'Piquete 2'}],
       financeiro:[{Tipo:'despesa',Categoria:'Medicamentos',Descricao:'Ivermectina lote A',Valor:1500,Data:'2026-05-01',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'Pix',Codigo_Boleto:'',Parcela_Numero:1,Parcela_Total:1,Grupo_Parcelas:'',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Sal',Descricao:'Boleto sal mineral (1/3)',Valor:933.33,Data:'2026-05-02',Vencimento:'2026-05-20',Status_Pagamento:'pendente',Forma_Pagamento:'Boleto',Codigo_Boleto:'00000.00000 00000.000000 00000.000000 0 00000000000000',Parcela_Numero:1,Parcela_Total:3,Grupo_Parcelas:'compra-sal-maio',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Sal',Descricao:'Boleto sal mineral (2/3)',Valor:933.33,Data:'2026-05-02',Vencimento:'2026-06-20',Status_Pagamento:'pendente',Forma_Pagamento:'Boleto',Codigo_Boleto:'',Parcela_Numero:2,Parcela_Total:3,Grupo_Parcelas:'compra-sal-maio',Propriedade:'',Km_Rodados:'',Valor_Km:'',Cliente:''},{Tipo:'despesa',Categoria:'Deslocamento/Entrega',Descricao:'Ida para propriedade - entrega de sal e medicamentos',Valor:280,Data:'2026-05-02',Vencimento:'',Status_Pagamento:'pago',Forma_Pagamento:'',Codigo_Boleto:'',Parcela_Numero:1,Parcela_Total:1,Grupo_Parcelas:'',Propriedade:'Sede Principal',Km_Rodados:112,Valor_Km:2.5,Cliente:''}],
-      estoque:[{Nome:'Ivermectina 1%',Categoria:'Antiparasitário',Quantidade:50,Unidade:'mL',Minimo:10,Sede:'Sede Principal'}],
+      estoque:[{Nome:'Amoxicilina LA',Categoria:'Antibiótico',Quantidade:50,Unidade:'mL',Minimo:10,Local:'Farmácia'},{Nome:'Vacina Clostridial',Categoria:'Vacina',Quantidade:80,Unidade:'dose',Minimo:20,Local:'Sede Principal'},{Nome:'Implante Reprodutivo',Categoria:'Implantes',Quantidade:30,Unidade:'unid',Minimo:5,Local:'Farmácia'}],
       manejos:[{Brinco:'2526',Nome:'Touro 2526',Especie:'Bovino',Categoria:'Touro',Raca:'Charoles',Sexo:'M',Peso:820,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Piquete:'Piquete 1',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Ivermectina 1%',Quantidade:10,Unidade:'mL',Valor_Unit:0.85,Obs:'Dose individual'},{Brinco:'4001',Nome:'Cabra Boer 4001',Especie:'Caprino',Categoria:'Fêmea',Raca:'Boer',Sexo:'F',Peso:65,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Piquete:'Piquete 2',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Closantel',Quantidade:5,Unidade:'mL',Valor_Unit:1.20,Obs:'Animal novo sera criado se nao existir'},{Brinco:'5001',Nome:'Borrego Texel 5001',Especie:'Ovino',Categoria:'Borrego',Raca:'Texel',Sexo:'M',Peso:42,Status:'Ativo',Nome_Manejo:'Vermifugacao Maio',Data:'2026-05-10',Sede:'Sede Principal',Piquete:'Piquete 2',Km_Rodados:80,Valor_Km:2.5,Tempo_Horas:3,Pessoas:2,Valor_Hora_Pessoa:35,Medicamento:'Vermifugo',Quantidade:3,Unidade:'mL',Valor_Unit:0.95,Obs:'Tambem aceita ovinos e caprinos'}],
       vendas:[{Brinco:'2526',Data:'2026-05-10',Valor:18000,Peso:650,Comprador:'João da Silva',CPF:'000.000.000-00',Telefone:'(46) 99999-9999',Cidade:'Palmas',Estado:'PR',Obs:'GTA 1234'}]
     }
@@ -1391,7 +1485,7 @@ function ExcelPanel({sedes}){
         await sb.from('financeiro').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' lançamento(s) importado(s)!'})
       } else if(importTab==='estoque'){
-        const novos=rows.map(r=>{const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0];return {id:genId(),nome:r.Nome||'',categoria:r.Categoria||'Outro',quantidade:Number(r.Quantidade)||0,unidade:r.Unidade||'unid',minimo:Number(r.Minimo)||0,sedeId:sede?.id||''};}).filter(e=>e.nome)
+        const novos=rows.map(r=>{const localId=estoqueLocalId(r.Local||r.Sede);return {id:genId(),nome:r.Nome||'',categoria:r.Categoria||'Outro',quantidade:Number(r.Quantidade)||0,unidade:r.Unidade||'unid',minimo:Number(r.Minimo)||0,sedeId:localId};}).filter(e=>e.nome)
         await sb.from('estoque').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' item(s) importado(s)!'})
       } else if(importTab==='manejos'){
