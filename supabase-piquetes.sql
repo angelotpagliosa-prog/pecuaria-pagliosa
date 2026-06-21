@@ -14,8 +14,12 @@ create table if not exists public.piquetes (
 alter table public.animais
   add column if not exists "piqueteId" text;
 
+alter table public.manejos
+  add column if not exists "piqueteId" text;
+
 create index if not exists piquetes_sede_id_idx on public.piquetes("sedeId");
 create index if not exists animais_piquete_id_idx on public.animais("piqueteId");
+create index if not exists manejos_piquete_id_idx on public.manejos("piqueteId");
 
 -- Se voce ja rodou supabase-security.sql, este bloco tambem protege piquetes por perfil.
 do $$

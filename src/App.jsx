@@ -985,12 +985,13 @@ function Reproducao({animais,sedes,user}){
 // ── MANEJOS ───────────────────────────────────────────────
 function Manejos({sedes,user}){
   const {rows,loading,add,update,remove,setRows}=useTable('manejos')
+  const {rows:piquetes}=useTable('piquetes')
   const blankMed=()=>({id:genId(),nome:'',qtd:'',unidade:'mL',valor:''})
-  const makeBlankForm=()=>({nome:'',data:'',sedeId:sedes[0]?.id||'',cabecas:'',medicamentos:[blankMed()],kmRodados:'',valorKm:'',tempoHoras:'',pessoas:'',valorHoraPessoa:'',obs:'',status:'pendente'})
+  const makeBlankForm=()=>({nome:'',data:'',sedeId:sedes[0]?.id||'',piqueteId:'',cabecas:'',medicamentos:[blankMed()],kmRodados:'',valorKm:'',tempoHoras:'',pessoas:'',valorHoraPessoa:'',obs:'',status:'pendente'})
   const [modal,setModal]=useState(null),[detail,setDetail]=useState(null),[sel,setSel]=useState(null)
   const [form,setForm]=useState(makeBlankForm())
   const [selected,setSelected]=useState([])
-  const [bulk,setBulk]=useState({status:'',sedeId:''})
+  const [bulk,setBulk]=useState({status:'',sedeId:'',piqueteId:''})
   const canEdit=user.perfil!=='funcionario'
   const visibleIds=rows.map(m=>m.id)
   const selectedVisible=visibleIds.filter(id=>selected.includes(id)).length
@@ -1001,10 +1002,11 @@ function Manejos({sedes,user}){
   function calcTotalManejo(m){return manejoCustoTotal(m);}
   const ft=calcTotal(form.medicamentos),fd=calcDeslocamento(form),fe=calcEquipe(form),fg=ft+fd+fe,fpp=form.cabecas>0?fg/parseFloat(form.cabecas||1):0
   function resetForm(){setForm(makeBlankForm());setSel(null);}
-  function buildManejo(){return {...form,cabecas:parseInt(form.cabecas)||0,kmRodados:parseFloat(form.kmRodados)||0,valorKm:parseFloat(form.valorKm)||0,tempoHoras:parseFloat(form.tempoHoras)||0,pessoas:parseInt(form.pessoas)||0,valorHoraPessoa:parseFloat(form.valorHoraPessoa)||0,medicamentos:form.medicamentos.map(m=>({...m,qtd:parseFloat(m.qtd)||0,valor:parseFloat(m.valor)||0}))};}
+  function changeSedeManejo(v){setForm(f=>({...f,sedeId:v,piqueteId:piquetes.some(p=>p.id===f.piqueteId&&p.sedeId===v)?f.piqueteId:''}));}
+  function buildManejo(){return {...form,piqueteId:form.piqueteId||null,cabecas:parseInt(form.cabecas)||0,kmRodados:parseFloat(form.kmRodados)||0,valorKm:parseFloat(form.valorKm)||0,tempoHoras:parseFloat(form.tempoHoras)||0,pessoas:parseInt(form.pessoas)||0,valorHoraPessoa:parseFloat(form.valorHoraPessoa)||0,medicamentos:form.medicamentos.map(m=>({...m,qtd:parseFloat(m.qtd)||0,valor:parseFloat(m.valor)||0}))};}
   function loadManejo(m){
     const meds=Array.isArray(m.medicamentos)&&m.medicamentos.length?m.medicamentos:[blankMed()]
-    setForm({nome:m.nome||'',data:m.data||'',sedeId:m.sedeId||sedes[0]?.id||'',cabecas:String(m.cabecas||''),medicamentos:meds.map(md=>({id:md.id||genId(),nome:md.nome||'',qtd:String(md.qtd||''),unidade:md.unidade||'mL',valor:String(md.valor||'')})),kmRodados:String(m.kmRodados||''),valorKm:String(m.valorKm||''),tempoHoras:String(m.tempoHoras||''),pessoas:String(m.pessoas||''),valorHoraPessoa:String(m.valorHoraPessoa||''),obs:m.obs||'',status:m.status||'pendente'})
+    setForm({nome:m.nome||'',data:m.data||'',sedeId:m.sedeId||sedes[0]?.id||'',piqueteId:m.piqueteId||'',cabecas:String(m.cabecas||''),medicamentos:meds.map(md=>({id:md.id||genId(),nome:md.nome||'',qtd:String(md.qtd||''),unidade:md.unidade||'mL',valor:String(md.valor||'')})),kmRodados:String(m.kmRodados||''),valorKm:String(m.valorKm||''),tempoHoras:String(m.tempoHoras||''),pessoas:String(m.pessoas||''),valorHoraPessoa:String(m.valorHoraPessoa||''),obs:m.obs||'',status:m.status||'pendente'})
   }
   function addMed(){setForm(f=>({...f,medicamentos:[...f.medicamentos,blankMed()]}));}
   function updMed(i,k,v){setForm(f=>({...f,medicamentos:f.medicamentos.map((m,idx)=>idx===i?{...m,[k]:v}:m)}));}
@@ -1024,6 +1026,8 @@ function Manejos({sedes,user}){
     const obj={}
     if(bulk.status)obj.status=bulk.status
     if(bulk.sedeId)obj.sedeId=bulk.sedeId
+    if(bulk.piqueteId==='__sem__')obj.piqueteId=null
+    else if(bulk.piqueteId)obj.piqueteId=bulk.piqueteId
     if(Object.keys(obj).length===0||selected.length===0)return
     const ids=[...selected]
     const {data,error}=await sb.from('manejos').update(obj).in('id',ids).select()
@@ -1033,7 +1037,7 @@ function Manejos({sedes,user}){
       return ids.includes(r.id)?(novo||{...r,...obj}):r
     }))
     setSelected([])
-    setBulk({status:'',sedeId:''})
+    setBulk({status:'',sedeId:'',piqueteId:''})
     setModal(null)
   }
   async function excluirSelecionados(){
@@ -1049,7 +1053,10 @@ function Manejos({sedes,user}){
   function toggleVisible(){setSelected(p=>allVisibleSelected?p.filter(id=>!visibleIds.includes(id)):[...new Set([...p,...visibleIds])]);}
   const sC={concluido:G,pendente:Y,cancelado:R},sL={concluido:'Concluido',pendente:'Pendente',cancelado:'Cancelado'}
   const bulkStatusOpts=[{v:'',l:'Manter status atual'},{v:'pendente',l:'Pendente'},{v:'concluido',l:'Concluido'},{v:'cancelado',l:'Cancelado'}]
-  const bulkSedeOpts=[{v:'',l:'Manter sede atual'},...sedes.map(s=>({v:s.id,l:s.nome}))]
+  const sedeOpts=sedes.map(s=>({v:s.id,l:s.nome}))
+  const piqueteOpts=[{v:'',l:'Sem piquete / toda a sede'},...piquetes.filter(p=>!form.sedeId||p.sedeId===form.sedeId).map(p=>({v:p.id,l:p.nome}))]
+  const bulkSedeOpts=[{v:'',l:'Manter sede atual'},...sedeOpts]
+  const bulkPiqueteOpts=[{v:'',l:'Manter piquete atual'},{v:'__sem__',l:'Sem piquete / toda a sede'},...piquetes.filter(p=>!bulk.sedeId||p.sedeId===bulk.sedeId).map(p=>{const s=sedes.find(x=>x.id===p.sedeId);return {v:p.id,l:p.nome+(s?' - '+s.nome:'')}})]
   const checkStyle={width:16,height:16,accentColor:Y,cursor:'pointer'}
   return <div>
     <SH title='🩺 Manejos Sanitarios' action={canEdit&&<Btn onClick={()=>{resetForm();setModal('new')}}>+ Novo Manejo</Btn>}/>
@@ -1068,15 +1075,15 @@ function Manejos({sedes,user}){
     {canEdit&&selected.length>0&&<div style={{background:Y+'10',border:'1px solid '+Y+'35',borderRadius:12,padding:'12px 14px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
       <div style={{color:Y,fontWeight:800,fontSize:13}}>{selected.length} manejo(s) selecionado(s)</div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-        <Btn v='g' small onClick={()=>{setBulk({status:'',sedeId:''});setModal('bulk')}}>Aplicar em lote</Btn>
+        <Btn v='g' small onClick={()=>{setBulk({status:'',sedeId:'',piqueteId:''});setModal('bulk')}}>Aplicar em lote</Btn>
         <Btn v='r' small onClick={()=>setModal('bulkDelete')}>Excluir selecionados</Btn>
       </div>
     </div>}
     <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
       {loading?<Loading/>:<div style={{overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',minWidth:1050}}>
-          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Manejo</Th><Th>Data</Th><Th>Sede</Th><Th>Cabecas</Th><Th>Km</Th><Th>Tempo</Th><Th>Pessoas</Th><Th>Custo Total</Th><Th>Custo/Cabeca</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
-          <tbody>{rows.map(m=>{const total=calcTotalManejo(m);const cpp=m.cabecas>0?total/m.cabecas:0;const sede=sedes.find(s=>s.id===m.sedeId);const marcado=selected.includes(m.id);return <TR key={m.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(m.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:700,color:BL,textDecoration:'underline',cursor:'pointer'}} onClick={()=>setDetail(m)}>{m.nome}</Td><Td s={{color:D1}}>{fmtDate(m.data)}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td s={{fontWeight:700,textAlign:'center'}}>{m.cabecas}</Td><Td s={{color:D1}}>{m.kmRodados?m.kmRodados+' km':'-'}</Td><Td s={{color:D1}}>{m.tempoHoras?m.tempoHoras+' h':'-'}</Td><Td s={{fontWeight:700,textAlign:'center'}}>{m.pessoas||'-'}</Td><Td s={{fontWeight:800,color:PU}}>{fmtR(total)}</Td><Td s={{fontWeight:700,color:Y}}>{fmtR(cpp)}</Td><Td><Badge label={sL[m.status]||m.status} color={sC[m.status]||D1} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(m);loadManejo(m);setModal('edit');}} onDel={()=>{setSel(m);setModal('delete');}}/></Td>}</TR>})}</tbody>
+          <thead><tr>{canEdit&&<Th><input type='checkbox' checked={allVisibleSelected} onChange={toggleVisible} style={checkStyle}/></Th>}<Th>Manejo</Th><Th>Data</Th><Th>Sede</Th><Th>Piquete</Th><Th>Cabecas</Th><Th>Km</Th><Th>Tempo</Th><Th>Pessoas</Th><Th>Custo Total</Th><Th>Custo/Cabeca</Th><Th>Status</Th>{canEdit&&<Th>Acoes</Th>}</tr></thead>
+          <tbody>{rows.map(m=>{const total=calcTotalManejo(m);const cpp=m.cabecas>0?total/m.cabecas:0;const sede=sedes.find(s=>s.id===m.sedeId);const piq=piquetes.find(p=>p.id===m.piqueteId);const marcado=selected.includes(m.id);return <TR key={m.id}>{canEdit&&<Td><input type='checkbox' checked={marcado} onChange={()=>toggleOne(m.id)} style={checkStyle}/></Td>}<Td s={{fontWeight:700,color:BL,textDecoration:'underline',cursor:'pointer'}} onClick={()=>setDetail(m)}>{m.nome}</Td><Td s={{color:D1}}>{fmtDate(m.data)}</Td><Td s={{color:D1,fontSize:12}}>{sede?.nome||'-'}</Td><Td>{piq?<Badge label={piq.nome} color={G}/>:<span style={{color:D2,fontSize:12}}>Toda a sede</span>}</Td><Td s={{fontWeight:700,textAlign:'center'}}>{m.cabecas}</Td><Td s={{color:D1}}>{m.kmRodados?m.kmRodados+' km':'-'}</Td><Td s={{color:D1}}>{m.tempoHoras?m.tempoHoras+' h':'-'}</Td><Td s={{fontWeight:700,textAlign:'center'}}>{m.pessoas||'-'}</Td><Td s={{fontWeight:800,color:PU}}>{fmtR(total)}</Td><Td s={{fontWeight:700,color:Y}}>{fmtR(cpp)}</Td><Td><Badge label={sL[m.status]||m.status} color={sC[m.status]||D1} dot/></Td>{canEdit&&<Td><ActBtns onEdit={()=>{setSel(m);loadManejo(m);setModal('edit');}} onDel={()=>{setSel(m);setModal('delete');}}/></Td>}</TR>})}</tbody>
         </table>
         {rows.length===0&&<Empty msg='Nenhum manejo registrado.'/>}
       </div>}
@@ -1084,7 +1091,8 @@ function Manejos({sedes,user}){
     {(modal==='new'||modal==='edit')&&<Modal title={modal==='edit'?'Editar Manejo':'Registrar Manejo Sanitario'} onClose={()=>{setModal(null);resetForm();}} wide>
       <div style={{display:'flex',flexDirection:'column',gap:14}}>
         <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}><Inp label='Nome' value={form.nome} onChange={v=>setForm(f=>({...f,nome:v}))}/><Inp label='Data' value={form.data} onChange={v=>setForm(f=>({...f,data:v}))} type='date'/></div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Sede' value={form.sedeId} onChange={v=>setForm(f=>({...f,sedeId:v}))} opts={sedes.map(s=>({v:s.id,l:s.nome}))}/><Inp label='Cabecas' value={form.cabecas} onChange={v=>setForm(f=>({...f,cabecas:v}))} type='number'/></div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label='Sede' value={form.sedeId} onChange={changeSedeManejo} opts={sedeOpts}/><Inp label='Piquete' value={form.piqueteId} onChange={v=>setForm(f=>({...f,piqueteId:v}))} opts={piqueteOpts}/></div>
+        <Inp label='Cabecas' value={form.cabecas} onChange={v=>setForm(f=>({...f,cabecas:v}))} type='number'/>
         <div style={{background:BL+'15',border:'1px solid '+BL+'30',borderRadius:9,padding:'8px 13px',color:BL,fontSize:12,fontWeight:700}}>Deslocamento e equipe</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
           <Inp label='Km Rodados' value={form.kmRodados} onChange={v=>setForm(f=>({...f,kmRodados:v}))} type='number'/>
@@ -1125,8 +1133,9 @@ function Manejos({sedes,user}){
       <div style={{display:'flex',flexDirection:'column',gap:13}}>
         <div style={{background:Y+'15',border:'1px solid '+Y+'35',borderRadius:9,padding:'10px 13px',color:Y,fontSize:12,fontWeight:700}}>{selected.length} manejo(s) selecionado(s). Preencha apenas o que deseja alterar.</div>
         <Inp label='Status' value={bulk.status} onChange={v=>setBulk(p=>({...p,status:v}))} opts={bulkStatusOpts}/>
-        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v}))} opts={bulkSedeOpts}/>
-        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.status&&!bulk.sedeId}/>
+        <Inp label='Sede' value={bulk.sedeId} onChange={v=>setBulk(p=>({...p,sedeId:v,piqueteId:''}))} opts={bulkSedeOpts}/>
+        <Inp label='Piquete' value={bulk.piqueteId} onChange={v=>setBulk(p=>({...p,piqueteId:v}))} opts={bulkPiqueteOpts}/>
+        <MFooter onCancel={()=>setModal(null)} onSave={aplicarLote} label='Aplicar nos Selecionados' disabled={!bulk.status&&!bulk.sedeId&&!bulk.piqueteId}/>
       </div>
     </Modal>}
     {modal==='bulkDelete'&&<Modal title='Excluir Selecionados' onClose={()=>setModal(null)}>
@@ -1134,7 +1143,7 @@ function Manejos({sedes,user}){
     </Modal>}
     {detail&&<Modal title={detail.nome} onClose={()=>setDetail(null)} wide>
       <div style={{display:'flex',flexDirection:'column',gap:16}}>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:12}}>{[['Data',fmtDate(detail.data),TX],['Sede',(sedes.find(s=>s.id===detail.sedeId)||{nome:'-'}).nome,TX],['Cabecas',detail.cabecas,Y],['Km',detail.kmRodados?detail.kmRodados+' km':'-',BL],['Tempo',detail.tempoHoras?detail.tempoHoras+' h':'-',G],['Pessoas',detail.pessoas||'-',Y],['Medicamentos',fmtR(calcTotal(detail.medicamentos)),PU],['Deslocamento',fmtR(calcDeslocamento(detail)),BL],['Equipe',fmtR(calcEquipe(detail)),G],['Total',fmtR(calcTotalManejo(detail)),Y],['Custo/Cabeca',fmtR(detail.cabecas>0?calcTotalManejo(detail)/detail.cabecas:0),Y],['Status',sL[detail.status]||detail.status,sC[detail.status]||D1]].map(([l,v,c])=><div key={l} style={{background:CARD2,borderRadius:9,padding:'12px 14px',border:'1px solid '+B}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>{l}</div><div style={{color:c,fontWeight:700,fontSize:15,marginTop:4}}>{v}</div></div>)}</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:12}}>{[['Data',fmtDate(detail.data),TX],['Sede',(sedes.find(s=>s.id===detail.sedeId)||{nome:'-'}).nome,TX],['Piquete',(piquetes.find(p=>p.id===detail.piqueteId)||{nome:'Toda a sede'}).nome,G],['Cabecas',detail.cabecas,Y],['Km',detail.kmRodados?detail.kmRodados+' km':'-',BL],['Tempo',detail.tempoHoras?detail.tempoHoras+' h':'-',G],['Pessoas',detail.pessoas||'-',Y],['Medicamentos',fmtR(calcTotal(detail.medicamentos)),PU],['Deslocamento',fmtR(calcDeslocamento(detail)),BL],['Equipe',fmtR(calcEquipe(detail)),G],['Total',fmtR(calcTotalManejo(detail)),Y],['Custo/Cabeca',fmtR(detail.cabecas>0?calcTotalManejo(detail)/detail.cabecas:0),Y],['Status',sL[detail.status]||detail.status,sC[detail.status]||D1]].map(([l,v,c])=><div key={l} style={{background:CARD2,borderRadius:9,padding:'12px 14px',border:'1px solid '+B}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>{l}</div><div style={{color:c,fontWeight:700,fontSize:15,marginTop:4}}>{v}</div></div>)}</div>
         {detail.obs&&<div style={{color:D1,fontSize:13}}><strong>Obs:</strong> {detail.obs}</div>}
       </div>
     </Modal>}
@@ -1507,8 +1516,9 @@ function ExcelPanel({sedes}){
         const grupos={}
         rows.forEach(r=>{
           const sede=sedes.find(s=>s.nome===r.Sede)||sedes[0]
-          const chave=(r.Nome_Manejo||'Manejo')+'||'+(r.Data||'')+'||'+(sede?.id||'')
-          if(!grupos[chave])grupos[chave]={nome:r.Nome_Manejo||'Manejo',data:r.Data||'',sedeId:sede?.id||'',cabecas:Number(r.Num_Cabecas)||0,kmRodados:Number(r.Km_Rodados)||0,valorKm:Number(r.Valor_Km)||0,tempoHoras:Number(r.Tempo_Horas)||0,pessoas:Number(r.Pessoas)||0,valorHoraPessoa:Number(r.Valor_Hora_Pessoa)||0,meds:[],brincos:new Set(),obs:[]}
+          const piquete=piquetes.find(p=>p.nome===r.Piquete&&p.sedeId===sede?.id)
+          const chave=(r.Nome_Manejo||'Manejo')+'||'+(r.Data||'')+'||'+(sede?.id||'')+'||'+(piquete?.id||'')
+          if(!grupos[chave])grupos[chave]={nome:r.Nome_Manejo||'Manejo',data:r.Data||'',sedeId:sede?.id||'',piqueteId:piquete?.id||null,cabecas:Number(r.Num_Cabecas)||0,kmRodados:Number(r.Km_Rodados)||0,valorKm:Number(r.Valor_Km)||0,tempoHoras:Number(r.Tempo_Horas)||0,pessoas:Number(r.Pessoas)||0,valorHoraPessoa:Number(r.Valor_Hora_Pessoa)||0,meds:[],brincos:new Set(),obs:[]}
           const brinco=String(r.Brinco||'').trim()
           if(brinco)grupos[chave].brincos.add(brinco)
           if(r.Obs)grupos[chave].obs.push(String(r.Obs))
@@ -1517,7 +1527,7 @@ function ExcelPanel({sedes}){
         const novos=Object.values(grupos).map(g=>{
           const brincos=[...g.brincos]
           const obs=['Importado via Excel',brincos.length?'Animais: '+brincos.join(', '):'',...g.obs].filter(Boolean).join(' | ')
-          return {id:genId(),nome:g.nome,data:g.data,sedeId:g.sedeId,cabecas:brincos.length||g.cabecas,kmRodados:g.kmRodados,valorKm:g.valorKm,tempoHoras:g.tempoHoras,pessoas:g.pessoas,valorHoraPessoa:g.valorHoraPessoa,medicamentos:g.meds,obs,status:'concluido'}
+          return {id:genId(),nome:g.nome,data:g.data,sedeId:g.sedeId,piqueteId:g.piqueteId,cabecas:brincos.length||g.cabecas,kmRodados:g.kmRodados,valorKm:g.valorKm,tempoHoras:g.tempoHoras,pessoas:g.pessoas,valorHoraPessoa:g.valorHoraPessoa,medicamentos:g.meds,obs,status:'concluido'}
         })
         if(novos.length)await sb.from('manejos').insert(novos)
         setImportMsg({type:'ok',text:novos.length+' manejo(s) criado(s), '+novosAnimais.length+' animal(is) novo(s) cadastrado(s) e '+rows.length+' linha(s) processada(s)!'})
