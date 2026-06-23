@@ -13,6 +13,7 @@ const BG='#0b0c13',CARD='#11121a',CARD2='#181923',B='#21222f',TX='#eef0f8',D1='#
 const FARMACIA_ID='farmacia'
 
 function fmtDate(s){if(!s)return '-';return new Date(s+'T12:00').toLocaleDateString('pt-BR');}
+function fmtDateTime(s){if(!s)return '-';return new Date(s).toLocaleString('pt-BR');}
 function fmtR(n){return 'R$ '+Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2});}
 function localEstoqueNome(id,sedes){if(id===FARMACIA_ID)return 'Farmácia';return sedes.find(s=>s.id===id)?.nome||'-';}
 function manejoMedicamentosTotal(meds){return (Array.isArray(meds)?meds:[]).reduce((s,m)=>s+(parseFloat(m.qtd||0)*parseFloat(m.valor||0)),0);}
@@ -1527,6 +1528,68 @@ function Usuarios({sedes}){
   </div>
 }
 
+// ── AUDITORIA ─────────────────────────────────────────────
+function Auditoria(){
+  const {rows,loading}=useTable('auditoria')
+  const [fUsuario,setFUsuario]=useState(''),[fTabela,setFTabela]=useState(''),[fAcao,setFAcao]=useState('')
+  const [sel,setSel]=useState(null)
+  const acoes={criou:{label:'Criou',color:G},editou:{label:'Editou',color:Y},excluiu:{label:'Excluiu',color:R},login:{label:'Login',color:BL}}
+  const tabelaNome={animais:'Rebanho',reproducao:'Reprodução',financeiro:'Financeiro',clientes:'Clientes/Fornecedores',estoque:'Estoque',manejos:'Manejos',movimentacoes:'Movimentações',agenda:'Agenda',vendas:'Vendas',sedes:'Sedes',piquetes:'Piquetes',usuarios:'Usuários',semen_botijoes:'Botijões',semen_palhetas:'Palhetas',semen_saidas:'Saídas de Sêmen',aplicacoes_estoque:'Aplicações Estoque'}
+  const ordenadas=[...rows].sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')))
+  const usuarios=[...new Set(ordenadas.map(r=>r.usuarioEmail||r.usuarioNome||'Sistema').filter(Boolean))]
+  const tabelas=[...new Set(ordenadas.map(r=>r.tabela).filter(Boolean))].sort()
+  const lista=ordenadas.filter(r=>(!fUsuario||(r.usuarioEmail||r.usuarioNome||'Sistema')===fUsuario)&&(!fTabela||r.tabela===fTabela)&&(!fAcao||r.acao===fAcao))
+  const hoje=todayISO()
+  const hojeCount=rows.filter(r=>String(r.created_at||'').slice(0,10)===hoje).length
+  const editCount=rows.filter(r=>r.acao==='editou').length
+  const delCount=rows.filter(r=>r.acao==='excluiu').length
+  function resumoDados(obj){
+    if(!obj)return '-'
+    const dados=typeof obj==='string'?{}:obj
+    return dados.descricao||dados.nome||dados.titulo||dados.brinco||dados.email||dados.compradorNome||dados.categoria||dados.id||'-'
+  }
+  const jsonBox=v=><pre style={{background:CARD2,border:'1px solid '+B,borderRadius:10,padding:12,color:D1,fontSize:11,whiteSpace:'pre-wrap',maxHeight:260,overflow:'auto'}}>{JSON.stringify(v||{},null,2)}</pre>
+  return <div>
+    <SH title='🧾 Auditoria do Sistema'/>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:18}}>
+      <StatCard icon='🧾' label='Registros' value={rows.length} color={Y}/>
+      <StatCard icon='📅' label='Hoje' value={hojeCount} color={BL}/>
+      <StatCard icon='✏️' label='Edições' value={editCount} color={Y}/>
+      <StatCard icon='🗑️' label='Exclusões' value={delCount} color={R}/>
+    </div>
+    <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+      <select value={fUsuario} onChange={e=>setFUsuario(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todos os usuários</option>{usuarios.map(u=><option key={u} value={u}>{u}</option>)}</select>
+      <select value={fTabela} onChange={e=>setFTabela(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todos os módulos</option>{tabelas.map(t=><option key={t} value={t}>{tabelaNome[t]||t}</option>)}</select>
+      <select value={fAcao} onChange={e=>setFAcao(e.target.value)} style={{background:CARD,border:'1px solid '+B,borderRadius:9,padding:'9px 13px',color:TX,fontSize:13}}><option value=''>Todas as ações</option>{Object.keys(acoes).map(a=><option key={a} value={a}>{acoes[a].label}</option>)}</select>
+      <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:'9px 14px',fontSize:13,color:D1}}>{lista.length} registro(s)</div>
+    </div>
+    <div style={{background:CARD,borderRadius:12,border:'1px solid '+B,overflow:'hidden'}}>
+      {loading?<Loading/>:<div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
+          <thead><tr><Th>Data/Hora</Th><Th>Usuário</Th><Th>Perfil</Th><Th>Ação</Th><Th>Módulo</Th><Th>Registro</Th><Th>Resumo</Th><Th>Detalhes</Th></tr></thead>
+          <tbody>{lista.map(r=>{const ac=acoes[r.acao]||{label:r.acao||'-',color:D1};const depois=r.dadosDepois||{};const antes=r.dadosAntes||{};return <TR key={r.id}><Td s={{color:D1,whiteSpace:'nowrap'}}>{fmtDateTime(r.created_at)}</Td><Td s={{fontWeight:700}}>{r.usuarioNome||r.usuarioEmail||'Sistema'}</Td><Td><Badge label={r.usuarioPerfil||'-'} color={r.usuarioPerfil==='admin'?Y:r.usuarioPerfil==='gestor'?G:BL}/></Td><Td><Badge label={ac.label} color={ac.color} dot/></Td><Td s={{fontWeight:700,color:TX}}>{tabelaNome[r.tabela]||r.tabela}</Td><Td s={{color:Y,fontWeight:700}}>{r.registroId||'-'}</Td><Td s={{color:D1}}>{r.descricao||resumoDados(depois)||resumoDados(antes)}</Td><Td><Btn v='gh' small onClick={()=>setSel(r)}>Ver</Btn></Td></TR>})}</tbody>
+        </table>
+        {lista.length===0&&<Empty msg='Nenhum registro de auditoria encontrado.'/>}
+      </div>}
+    </div>
+    {sel&&<Modal title='Detalhes da Auditoria' onClose={()=>setSel(null)} wide>
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+          <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:12}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Data/Hora</div><div style={{color:TX,fontWeight:700,fontSize:13,marginTop:4}}>{fmtDateTime(sel.created_at)}</div></div>
+          <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:12}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Usuário</div><div style={{color:TX,fontWeight:700,fontSize:13,marginTop:4}}>{sel.usuarioNome||sel.usuarioEmail||'Sistema'}</div></div>
+          <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:12}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Ação</div><div style={{color:TX,fontWeight:700,fontSize:13,marginTop:4}}>{acoes[sel.acao]?.label||sel.acao}</div></div>
+          <div style={{background:CARD2,border:'1px solid '+B,borderRadius:9,padding:12}}><div style={{color:D2,fontSize:10,fontWeight:700,textTransform:'uppercase'}}>Módulo</div><div style={{color:TX,fontWeight:700,fontSize:13,marginTop:4}}>{tabelaNome[sel.tabela]||sel.tabela}</div></div>
+        </div>
+        <div style={{color:D1,fontSize:13}}>{sel.descricao}</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <div><div style={{color:D2,fontSize:11,fontWeight:700,textTransform:'uppercase',marginBottom:8}}>Antes</div>{jsonBox(sel.dadosAntes)}</div>
+          <div><div style={{color:D2,fontSize:11,fontWeight:700,textTransform:'uppercase',marginBottom:8}}>Depois</div>{jsonBox(sel.dadosDepois)}</div>
+        </div>
+      </div>
+    </Modal>}
+  </div>
+}
+
 // ── GRAFICOS ──────────────────────────────────────────────
 function Graficos({animais,financeiro,reproducao,manejos,sedes}){
   const statusAtivo=['Ativo','Prenha','Não Pronta','TEF','Inseminada','Monta Natural']
@@ -2234,6 +2297,10 @@ export default function App(){
     return null
   }
 
+  async function registrarLoginAuditoria(){
+    try{await sb.rpc('registrar_login_auditoria')}catch{}
+  }
+
   async function login(){
     const emailLogin=email.trim()
     if(!emailLogin||!senha){setErr('Preencha e-mail e senha.');return}
@@ -2241,7 +2308,7 @@ export default function App(){
     const {data,error}=await sb.auth.signInWithPassword({email:emailLogin,password:senha})
     if(!error&&data?.user){
       const perfil=await carregarPerfil(data.user)
-      if(perfil)setSenha('')
+      if(perfil){await registrarLoginAuditoria();setSenha('')}
       setLoginLoad(false)
       return
     }
@@ -2278,7 +2345,8 @@ export default function App(){
     </div>
   </div>
 
-  const navItems=[...NAV,...(user.perfil==='admin'?[{id:'usuarios',icon:'👥',label:'Usuarios',g:'Config'}]:[]) ]
+  const isAdminUser=['admin','administrador'].includes(user.perfil)
+  const navItems=[...NAV,...(isAdminUser?[{id:'usuarios',icon:'👥',label:'Usuarios',g:'Config'},{id:'auditoria',icon:'🧾',label:'Auditoria',g:'Config'}]:[]) ]
   const groups=navItems.reduce((acc,n)=>{if(!acc.includes(n.g))acc.push(n.g);return acc;},[])
   const curNav=navItems.find(n=>n.id===mod)||{icon:'',label:''}
   const critCount=estoque.filter(e=>e.quantidade<=e.minimo).length
@@ -2320,7 +2388,8 @@ export default function App(){
         {mod==='sedes'&&<Sedes user={user}/>}
         {mod==='excel'&&<ExcelPanel sedes={sedes}/>}
         {mod==='ia'&&<div style={{height:'calc(100vh - 80px)',display:'flex',flexDirection:'column'}}><div style={{color:TX,fontWeight:800,fontSize:20,marginBottom:18}}>🤖 IA e Relatorios</div><div style={{flex:1,background:CARD,borderRadius:14,border:'1px solid '+B,padding:20,display:'flex',flexDirection:'column'}}><AIPanel animais={animais} manejos={manejos} estoque={estoque} reproducao={reproducao} financeiro={financeiro}/></div></div>}
-        {mod==='usuarios'&&user.perfil==='admin'&&<Usuarios sedes={sedes}/>}
+        {mod==='usuarios'&&isAdminUser&&<Usuarios sedes={sedes}/>}
+        {mod==='auditoria'&&isAdminUser&&<Auditoria/>}
       </div>
     </div>
   </div>
